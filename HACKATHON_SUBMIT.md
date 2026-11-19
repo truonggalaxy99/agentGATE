@@ -12,7 +12,7 @@
 - [x] Smart contract on BNB Chain (`contracts/AgentGate.sol`)
 - [x] Contract **deployed** on BSC mainnet — `0xf61C2A65F66E4a5aFe357C2EC8c3851D396c530e`
 - [ ] Source **verified + open-source** on BscScan (`npm run verify:bsc` + public repo)
-- [ ] Repo public
+- [x] Repo public — https://github.com/truonggalaxy99/agentGATE
 - [x] Trading UIs show **risk warnings**
 - [x] No Agentic Wallet QR login / no seed collection / no confirm bypass
 - [x] Drive ≥1 Agent ID address interactions (Pioneer) — Activate/`checkIn` done
@@ -27,7 +27,7 @@
 | Contract address(es) | `0xf61C2A65F66E4a5aFe357C2EC8c3851D396c530e` |
 | BscScan | https://bscscan.com/address/0xf61C2A65F66E4a5aFe357C2EC8c3851D396c530e |
 | Agent ID usage | Gate access via Agent ID NFT; on-chain `checkIn` / `logIntent` / `recordAction`; AI Agent intent handoff bound to Agent wallet (simulate → confirm → execute) |
-| Repo | _(GitHub public URL)_ |
+| Repo | https://github.com/truonggalaxy99/agentGATE |
 | Reward address | _(your BSC address)_ |
 
 ## Innovation scoring (official weights)

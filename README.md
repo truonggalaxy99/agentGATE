@@ -92,5 +92,5 @@ See `HACKATHON_SUBMIT.md`.
 | Project name | AgentGate |
 | Website | _(host `frontend/` then paste URL)_ |
 | Contract | `0xf61C2A65F66E4a5aFe357C2EC8c3851D396c530e` |
-| Repo | _(public GitHub URL)_ |
+| Repo | https://github.com/truonggalaxy99/agentGATE |
 | Hashtags | `#BinanceWalletHackathon` `#AgenticWallet` |
