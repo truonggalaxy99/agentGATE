@@ -1,0 +1,16 @@
+{
+  "name": "agentgate",
+  "version": "1.0.0",
+  "description": "AgentGate — Agent ID gated Agentic Wallet dApp for Binance Agent ID Hackathon",
+  "scripts": {
+    "compile": "hardhat compile",
+    "deploy:bsc": "hardhat run scripts/deploy.js --network bsc",
+    "deploy:bscTestnet": "hardhat run scripts/deploy.js --network bscTestnet",
+    "verify:bsc": "hardhat run scripts/verify.js --network bsc"
+  },
+  "devDependencies": {
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "dotenv": "^16.4.5",
+    "hardhat": "^2.22.17"
+  }
+}

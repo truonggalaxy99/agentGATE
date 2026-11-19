@@ -1,0 +1,9 @@
+node_modules/
+cache/
+artifacts/
+coverage/
+.env
+.env.local
+deployments/*.json
+!deployments/.gitkeep
+!deployments/bsc.json
