@@ -23,7 +23,7 @@
 | Field | Value |
 |-------|--------|
 | Project name | AgentGate |
-| Website | _(host `frontend/` via Vercel/Netlify — see README)_ |
+| Website | Claim/permanent host: `npx vercel login` then `npx vercel --prod` (temp demo was issued during packaging; claim link expires) |
 | Contract address(es) | `0xf61C2A65F66E4a5aFe357C2EC8c3851D396c530e` |
 | BscScan | https://bscscan.com/address/0xf61C2A65F66E4a5aFe357C2EC8c3851D396c530e |
 | Agent ID usage | Gate access via Agent ID NFT; on-chain `checkIn` / `logIntent` / `recordAction`; AI Agent intent handoff bound to Agent wallet (simulate → confirm → execute) |
