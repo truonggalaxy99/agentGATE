@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-label="AgentGate">
+  <rect width="128" height="128" rx="28" fill="#0B0E11"/>
+  <g fill="#F0B90B">
+    <!-- left pillar -->
+    <path d="M34 38h18v52H34z"/>
+    <path d="M34 38h26l-8 12H34z"/>
+    <!-- right pillar -->
+    <path d="M76 38h18v52H76z"/>
+    <path d="M68 38h26v12H76z"/>
+    <!-- lintel / gate arch -->
+    <path d="M40 34h48c0 10-8 18-24 18S40 44 40 34z"/>
+    <rect x="40" y="30" width="48" height="10" rx="2"/>
+    <!-- agent core -->
+    <circle cx="64" cy="68" r="11"/>
+  </g>
+</svg>

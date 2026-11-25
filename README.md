@@ -1,5 +1,9 @@
 # AgentGate
 
+<p align="center">
+  <img src="frontend/assets/agentgate-logo.jpg" width="120" height="120" alt="AgentGate logo">
+</p>
+
 Agent ID–gated Agentic Wallet dApp for the **Binance Wallet × BNB Chain Agent ID Hackathon**.
 
 ## Live deployment (BSC mainnet)
@@ -13,24 +17,31 @@ Agent ID–gated Agentic Wallet dApp for the **Binance Wallet × BNB Chain Agent
 
 ## What it does
 
-- Verifies non-transferable Agent ID (`name.ai`) on BNB Chain
-- **Dual entry:** Web3 wallet (direct sign) × AI Agent (`name.ai` + intent handoff)
+- **Ownership-gated Agent ID access** — connect the wallet that owns your `name.ai` (not a public name→wallet lookup)
+- **Dual entry:** Web3 wallet (direct sign) × AI Agent (your Agent ID + intent handoff)
 - Dashboard: balances, Send / Receive / Swap, Earn intent, Perp, prediction markets
 - **AI Agent Intent handoff** — structured prompt + JSON for Claude / Codex / Binance Agentic Wallet (`simulate → confirm → execute`)
 - On-chain `AgentGate`: `checkIn`, `logIntent`, `recordAction` (identity gate + audit trail, **no fund custody**)
+
+## Campaign safety posture
+
+- No custodial signing, no seed/key collection, no Agentic Wallet QR login
+- Prompts forbid confirmation bypass and third-party Agent ID lookups
+- Approve defaults to **exact** allowance; Unlimited is explicit opt-in with warning
+- Product name is **AgentGate**; “BNB Smart Chain” refers to the network only
 
 ## Agent ID usage
 
 | Feature | How Agent ID is used |
 |--------|----------------------|
-| Access | Only Agent ID holders can call gated contract methods (`onlyAgent`) |
-| Identity | Dashboard shows `name.ai` + verified badge |
+| Access | UI requires connected wallet == Agent ID owner; contract methods use `onlyAgent` |
+| Identity | Dashboard shows **your** `name.ai` + verified badge after ownership proof |
 | Execution | Intents bind to Agent wallet; AI agent must simulate before signing |
 | Metrics | `checkIn` / `logIntent` / `recordAction` emit events for on-chain interaction counts |
 
 ## Demo flow (hackathon judges)
 
-1. Open frontend → choose **AI Agent** → enter `name.ai`
+1. Open frontend → **AI Agent** → enter **your** `name.ai` → connect the owning wallet
 2. Tap **Activate AgentGate** → copy prompt → paste into Codex / Claude / Binance Agent
 3. Agent calls `checkIn()` on BSC (identity only, no funds moved)
 4. Use **Earn / Swap / Perp / Predict** → same intent handoff; prompts **require** `logIntent` + `recordAction` before the market action
@@ -90,7 +101,7 @@ See `HACKATHON_SUBMIT.md`.
 | Field | Value |
 |-------|--------|
 | Project name | AgentGate |
-| Website | _(host `frontend/` then paste URL)_ |
+| Website | https://agentgate-hazel.vercel.app |
 | Contract | `0xf61C2A65F66E4a5aFe357C2EC8c3851D396c530e` |
 | Repo | https://github.com/truonggalaxy99/agentGATE |
 | Hashtags | `#BinanceWalletHackathon` `#AgenticWallet` |

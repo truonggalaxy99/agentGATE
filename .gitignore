@@ -7,3 +7,4 @@ coverage/
 deployments/*.json
 !deployments/.gitkeep
 !deployments/bsc.json
+.vercel

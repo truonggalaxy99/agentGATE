@@ -23,10 +23,11 @@ module.exports = {
       accounts
     }
   },
+  // Etherscan API V2 — one key works for BSC (chainId 56) and other EVM chains
   etherscan: {
-    apiKey: { bsc: BSCSCAN_API_KEY, bscTestnet: BSCSCAN_API_KEY }
+    apiKey: BSCSCAN_API_KEY
   },
   sourcify: {
-    enabled: true
+    enabled: false
   }
 };

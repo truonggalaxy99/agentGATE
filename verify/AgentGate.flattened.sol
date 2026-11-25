@@ -1,4 +1,4 @@
-﻿// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: MIT
 // Sources flattened with hardhat v2.29.2 https://hardhat.org
 
 

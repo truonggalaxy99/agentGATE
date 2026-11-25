@@ -45,6 +45,7 @@ async function refreshGateStatus(address = currentDashboardAddress) {
         if (activated && last && last.gt(0)) {
             el.className = "gate-status ok";
             el.innerText = t("gateOk");
+            // Ownership for Agent path is session-based (homepage verify) — do not unlock from permanent activated alone
         } else {
             el.className = "gate-status";
             el.innerText = t("gateNeedActivate");
@@ -118,6 +119,8 @@ async function onChainLogIntent(intent, summary) {
 const ERC20_MIN_ABI = [
     "function balanceOf(address) view returns (uint256)",
     "function decimals() view returns (uint8)",
+    "function symbol() view returns (string)",
+    "function name() view returns (string)",
     "function allowance(address owner, address spender) view returns (uint256)",
     "function approve(address spender, uint256 amount) returns (bool)"
 ];
@@ -137,6 +140,7 @@ let currentBalance = ethers.BigNumber.from(0);
 let perpSide = "Long";
 let isWeb3Mode = false;
 let entryFlow = localStorage.getItem("agentgate_flow") === "web3" ? "web3" : "agent";
+let loginTab = entryFlow;
 let injectedProvider = null;
 let eip6963Providers = [];
 let walletChoiceList = [];
@@ -146,45 +150,186 @@ let currentAgentName = "";
 let priceCache = { BNB: 0, ETH: 0, BTCB: 0, CAKE: 0, USDT: 1, USDC: 1 };
 let portfolioRefreshTimer = null;
 let balanceHidden = localStorage.getItem("agentgate_hide_balance") === "1";
+// Phải khai báo sớm — updateUI → applyModeChrome chạy trong initSettingsUi (trước block Swap)
+let dashWorkspacePanel = localStorage.getItem("agentgate_dash_panel") || "trade";
+/** "web3" | "agentProof" — picker ví dùng chung / chứng minh chủ Agent ID (tuỳ chọn) */
+let walletConnectPurpose = "web3";
+/** Handle/input đang chờ (agent login / optional wallet proof) */
+let pendingAgentLogin = null;
+/** AI Agent path: đã chứng minh ownership trong phiên trình duyệt hiện tại */
+let agentOwnershipVerified = false;
+const AGENT_TRUST_KEY = "agentgate_trust_v1";
+const AGENT_TRUST_MS = 24 * 60 * 60 * 1000; // 24h trên máy này
+const BINANCE_AI_URL = "https://www.binance.com/en/agent-os";
+let agentVerifyPollTimer = null;
+let agentVerifyStartedAt = 0; // unix sec — checkIn phải mới hơn mốc này
+let agentVerifyOwner = "";
+let agentVerifyHandle = "";
+let agentVerifySessionId = "";
 
 const I18N = {
     vi: {
         settings: "Cài đặt", language: "Ngôn ngữ", theme: "Giao diện", themeLight: "Sáng", themeDark: "Tối",
-        howto: "Cách dùng", howtoTitle: "Cách dùng AgentGate", collapse: "Thu gọn", live: "Live",
-        howtoNote: "AgentGate không tự ký. Không phải lời khuyên đầu tư.",
+        howto: "Cách dùng", howtoTitle: "Cách dùng AI Agent", collapse: "Thu gọn", live: "Live",
+        howtoNote: "Quy tắc vàng: AgentGate không tự ký. AI Agent phải simulate trước — bạn confirm mới execute. Chỉ mạng BNB Smart Chain. Không phải lời khuyên đầu tư.",
         howtoSteps: [
-            "<b>Activate</b> — bấm check-in on-chain (Agent ID, không chuyển tiền).",
-            "<b>Chọn chế độ</b> — Perp, Dự đoán, Swap / Gửi, hoặc Earn.",
-            "<b>Hỏi AI Advisor</b> nếu phân vân (bóng AI góc phải trong Perp/Predict).",
-            "<b>Chốt lệnh</b> → copy prompt → dán vào AI Agent; agent <em>simulate trước</em>, bạn confirm mới execute."
+            "<b>1. Nhập Agent ID của bạn</b> — <em>name.ai</em> trên trang chủ (claim trong Binance App nếu chưa có). Không dùng để tra ví người khác.",
+            "<b>2. Xác minh</b> — mở Binance AI (hoặc copy prompt) → checkIn. On-chain OK → vào dashboard. <em>Máy này tin 24 giờ</em>; hết hạn / Đăng xuất mới hỏi lại.",
+            "<b>3. Chọn tay / chế độ</b> — trên dashboard: <em>Perp</em>, <em>Dự đoán</em>, <em>Launch</em>, Gửi / Nhận / Swap / Earn, hoặc hàng <em>AI Agent tools</em> (Approve, Bridge, Cancel).",
+            "<b>4. Điền form như app thật</b> — ví dụ Perp (Market/Limit/Stop), Earn (Deposit/Withdraw/Claim), Launch Token/NFT, Approve spender, Bridge chain…",
+            "<b>5. Chốt → tạo Prompt</b> — bấm nút chính; AgentGate mở intent + <em>tự copy prompt</em> vào clipboard.",
+            "<b>6. Dán vào AI Agent</b> — Claude / Codex / Binance Agent / TWAK. Agent đọc INTENT_JSON, <em>simulate trước</em>, báo rủi ro, rồi chờ bạn confirm mới ký/broadcast.",
+            "<b>7. On-chain audit</b> — prompt yêu cầu agent gọi <em>logIntent</em> rồi <em>recordAction</em> trên AgentGate trước khi đụng tiền (khi contract đã cấu hình).",
+            "<b>8. Theo dõi lại</b> — xem <em>AI Agent intents gần đây</em> để mở lại / copy; Perp Limit/Stop có thể hủy bằng tool <em>Cancel</em>; token list dùng ⋮ Manage như MetaMask."
         ],
         predict: "Dự đoán", estBalance: "Số dư ước tính", pnlToday: "PNL hôm nay",
         activateGate: "Activate AgentGate (on-chain check-in)",
         gateOk: "Đã check-in on-chain ✓", gateNeedActivate: "Chưa check-in — bấm Activate",
         gateNoDeploy: "Chưa deploy AgentGate — set address trong config.js", gateReadFail: "Không đọc được trạng thái gate",
         send: "Gửi", receive: "Nhận", swap: "Swap", check: "Check",
-        subtitle: "Chọn một luồng để bắt đầu — Web3 ví thường hoặc AI Agent (Agent ID).",
+        subtitle: "Chọn một luồng để bắt đầu — Web3 ví thường hoặc AI Agent (Agent ID của bạn).",
         placeholder: "ví dụ: yourname.ai", connect: "Kết nối ví", connectWeb3: "Kết nối ví", connected: "Đã kết nối",
-        loginDivider: "hoặc mở bằng Agent ID", loginTitle: "BNB Chain<br>AgentGate",
-        flowWeb3: "Web3 Wallet", flowAgent: "AI Agent",
-        flowWeb3Desc: "Kết nối ví → số dư → Gửi / Nhận / Swap. Perp & Predict mở Swap on-chain. DeFi sắp ra mắt.",
-        flowAgentDesc: "Luồng AI Agent: mở bằng name.ai, tạo intent (gồm Earn), dán prompt cho AI Agent — simulate trước, bạn confirm mới execute.",
-        pillWeb3: "MetaMask / Binance", pillDirect: "Ký trực tiếp",
+        loginDivider: "hoặc mở bằng Agent ID", loginTitle: "AgentGate",
+        flowWeb3: "Web3 Wallet", flowAgent: "AI Agent", flowAbout: "Giới thiệu",
+        flowWeb3Desc: "Kết nối ví → số dư → Gửi / Nhận / Swap / Earn (Venus). Perp & Predict mở Swap on-chain. DeFi tab sắp ra mắt.",
+        flowAgentDesc: "Luồng AI Agent: nhập name.ai → xác minh bằng Binance AI / prompt (không lộ tên/ví) → vào dashboard. Máy này tin 24 giờ; hết hạn mới xác minh lại. Không dùng để tra ví người khác.",
+        aboutKicker: "Binance Wallet × BNB Chain · Agent ID Hackathon",
+        aboutTitle: "Về AgentGate",
+        aboutTagline: "Cổng ownership-gated: chỉ Agent ID của bạn mới mở dashboard Web3 × AI Agent trên BNB Smart Chain.",
+        aboutMetricLabel: "Agent ID đã tương tác on-chain",
+        aboutP1: "AgentGate chứng minh bạn sở hữu name.ai bằng checkIn on-chain (Binance AI / prompt riêng tư, hoặc ví chủ). Sau đó mới mở số dư, Swap / Perp / Predict / Earn và công cụ Approve · Bridge · Cancel.",
+        aboutP2: "Luồng AI Agent luôn simulate → confirm → execute. AgentGate không tự ký, không lưu seed / private key, không đăng nhập Agentic Wallet bằng QR trên web.",
+        aboutPoint1: "Hai lối vào: Web3 Wallet hoặc AI Agent (Agent ID)",
+        aboutPoint2: "Trust thiết bị 24 giờ sau khi xác minh; Đăng xuất xoá trust",
+        aboutPoint3: "Intent on-chain: checkIn · logIntent · recordAction",
+        aboutPoint4: "Không phải công cụ tra ví người khác theo tên",
+        aboutRoadmapTitle: "Tầm nhìn",
+        aboutRoadmapNote: "Hiện có → hướng dài hạn. Tầm nhìn kỹ thuật — không cam kết tự trade / kiếm tiền hộ. Mọi thao tác tài sản vẫn cần user confirm.",
+        aboutVisionNow: "Hiện có",
+        aboutVisionNext: "Tầm nhìn",
+        aboutVisionNow1: "Identity gate bằng <code>name.ai</code>",
+        aboutVisionNow2: "Intent → simulate → user confirm → ký",
+        aboutVisionNow3: "Audit on-chain (<code>checkIn</code> / <code>logIntent</code>)",
+        aboutVisionNow4: "Dual Web3 × Agent",
+        aboutVisionNext1: "Agent chạy trong permission / hạn mức user đã cấp — ít bước hơn, vẫn có kiểm soát",
+        aboutVisionNext2: "UX một chạm như CEX (vẫn confirm khi đụng tài sản)",
+        aboutVisionNext3: "Agent hiểu rủi ro sâu + tuân thủ policy cá nhân",
+        aboutVisionNext4: "Liquidity / social / distribution riêng",
+        aboutVisionNext5: "<b>Triển khai AI như ChatGPT, Grok, Claude ngay trên Dashboard làm việc</b>",
+        aboutDisclaimer: "Dự án cộng đồng cho hackathon Agent ID — không phải sản phẩm chính thức của Binance / BNB Chain, không được tài trợ hay bảo chứng bởi Binance.",
+        aboutLinkBsc: "Hợp đồng trên BscScan",
+        aboutLinkGh: "Mã nguồn trên GitHub",
+        aboutFeedbackTitle: "Liên hệ / Feedback",
+        aboutFeedbackHint: "Góp ý sản phẩm hoặc hỏi kỹ thuật — không dùng để đăng nhập ví.",
+        aboutBadge: "DỰ ÁN CỘNG ĐỒNG",
+        aboutCtaAgent: "Vào AI Agent",
+        aboutCtaWeb3: "Vào Web3",
+        aboutSubtitle: "AgentGate là gì, Agent ID dùng ra sao, và liên kết hợp đồng / mã nguồn.",
+        pillWeb3: "MetaMask / Binance Wallet", pillDirect: "Ký trực tiếp",
         web3Step1: "Cài / mở MetaMask hoặc Binance Wallet", web3Step2: "Kết nối ví trên BNB Smart Chain", web3Step3: "Gửi / Swap / trade trực tiếp bằng ví",
-        brandWeb3: "BNB · Web3 Wallet", brandAgent: "BNB · Agentic Wallet",
+        brandWeb3: "Web3 Wallet · BNB Smart Chain", brandAgent: "Agentic Wallet · BNB Smart Chain",
+        loginStep1: "Nhập Agent ID (name.ai) của bạn",
+        loginStep2: "Mở Binance AI (hoặc copy prompt) → checkIn",
+        loginStep3: "Vào dashboard — máy này tin 24 giờ",
+        agentNeedOwnWallet: "Tuỳ chọn: nối ví chủ Agent ID để xác minh máy này ngay (không bắt buộc).",
+        agentOwnerMismatch: "Ví Web3 đang kết nối không khớp Agent ID này.",
+        agentUnverifiedBanner: "Chưa xác minh — quay lại trang chủ để mở Binance AI / checkIn.",
+        addressHidden: "Ẩn đến khi xác minh",
+        toastNeedOwnership: "Hãy xác minh Agent ID trước.",
+        optionalOwnerWallet: "Tuỳ chọn: nối ví chủ",
+        agentVerifyTitle: "Xác minh bằng AI Agent",
+        agentVerifyHint: "Prompt không chứa name.ai / địa chỉ ví. Khuyến nghị mở Binance AI (prompt đã copy sẵn). Sau checkIn trang tự vào dashboard. Máy này được tin 24 giờ.",
+        agentVerifyWaiting: "Đang chờ checkIn on-chain…",
+        agentVerifyOk: "Đã xác minh — đang mở dashboard…",
+        agentVerifyHandleLabel: "Sẵn sàng xác minh · trust 24h sau khi OK",
+        openBinanceAi: "Mở Binance AI",
+        agentVerifyIConfirmed: "Tôi đã confirm",
+        agentVerifyTrustHint: "Máy này sẽ nhớ 24 giờ — không hỏi lại mỗi lần mở tab.",
+        toastBinanceAiOpened: "Đã copy prompt — dán vào Binance AI rồi confirm checkIn.",
+        toastVerifyPolling: "Đang kiểm tra on-chain lại…",
         earn: "Earn", defi: "DeFi", stocks: "Cổ phiếu", soonBadge: "Soon",
         stocksNote: "Giá tham khảo · chưa giao dịch on-chain",
         toastComingSoon: "Sắp ra mắt — DeFi tab sẽ có ở bản sau.",
-        toastEarnWeb3Soon: "Earn on-chain (ký ví) sắp ra mắt. Dùng luồng AI Agent để tạo Earn intent.",
         toastEarnNeedAgent: "Mở bằng Agent ID (.ai) rồi dùng Earn để tạo intent.",
+        toastEarnWeb3OnlyVenus: "Web3 Earn hiện hỗ trợ Venus (BNB/USDT). Protocol khác dùng AI Agent.",
+        toastEarnOk: "Earn thành công",
+        toastEarnFail: "Earn thất bại",
         toastStockSoon: "Cổ phiếu: xem giá demo — giao dịch sẽ có sau.",
         earnTitle: "Earn",
-        earnHint: "Nạp vào protocol on-chain trên BNB Chain — AI Agent simulate trước, bạn confirm mới execute.",
-        riskEarn: "⚠️ Rủi ro: smart contract / depeg / APY thay đổi. Không phải Simple Earn CEX.",
+        earnHint: "Venus / Lista / Pancake LP trên BSC. Web3: ký ví. AI Agent: tạo intent → simulate → confirm.",
+        riskEarn: "⚠️ Rủi ro: smart contract / thanh khoản / APY thay đổi. Không phải Simple Earn CEX.",
         earnProtocol: "Protocol",
         earnProduct: "Product",
         earnConfirm: "Tạo Earn Intent",
+        earnConfirmWeb3: "Supply (ký ví)",
+        earnDeposit: "Deposit",
+        earnWithdraw: "Withdraw",
+        earnClaim: "Claim",
+        earnConfirmWithdraw: "Tạo Withdraw Intent",
+        earnConfirmClaim: "Tạo Claim Intent",
+        agentTools: "AI Agent tools",
+        walletActions: "Ví",
+        workspaceTitle: "Không gian làm việc",
+        wsTrade: "Trade",
+        wsCreate: "Create",
+        wsTools: "Tools",
+        wsAbout: "Giới thiệu",
+        wsCreateHint: "Tạo Token / NFT → prompt cho AI Agent.",
+        approvals: "Approve",
+        approvalsSub: "Quyền token",
+        bridge: "Bridge",
+        bridgeSub: "Chuyển chain",
+        cancelOrders: "Cancel",
+        cancelOrdersSub: "Limit / Stop",
+        approvalsTitle: "Approve / Revoke",
+        approvalsHint: "AI Agent only · quản lý allowance BEP-20 trên BSC trước khi swap/earn/bridge.",
+        riskApprove: "⚠️ Approve sai spender = rủi ro mất token. Mặc định Exact amount — chỉ bật Unlimited khi bạn hiểu rõ rủi ro MaxUint256.",
+        riskApproveUnlimited: "⚠️ Unlimited = MaxUint256. Spender có thể rút toàn bộ allowance. Chỉ dùng với contract chính thức bạn tin tưởng.",
+        approveAction: "Approve",
+        revokeAction: "Revoke",
+        approveSpender: "Spender",
+        spenderPcs: "PancakeSwap Router V2",
+        spenderVenus: "Venus vUSDT",
+        spenderCustom: "Custom address…",
+        spenderCustomPh: "0x… spender",
+        approveAmount: "Allowance",
+        approveUnlimited: "Unlimited",
+        approveExact: "Exact amount",
+        approveNote: "Ghi chú cho Agent",
+        approveNotePh: "vd. Approve USDT cho PCS trước khi swap…",
+        approvalsConfirm: "Tạo Approve Prompt",
+        toastNeedSpender: "Nhập địa chỉ spender hợp lệ.",
+        toastNeedApproveAmt: "Nhập số allowance hợp lệ.",
+        bridgeTitle: "Bridge",
+        bridgeHint: "AI Agent only · tạo intent bridge (simulate → confirm). Nguồn mặc định BSC.",
+        riskBridge: "⚠️ Bridge có rủi ro finality / sai địa chỉ / bridge scam. Chỉ dùng bridge uy tín.",
+        bridgeFrom: "From chain",
+        bridgeTo: "To chain",
+        bridgeToken: "Token",
+        bridgeDest: "Destination address",
+        bridgeDestPh: "0x… (mặc định = Agent wallet)",
+        bridgeProvider: "Bridge provider",
+        bridgeSlippage: "Max slippage %",
+        bridgeNotePh: "vd. Bridge USDT BSC → ETH, ưu tiên fee thấp…",
+        bridgeConfirm: "Tạo Bridge Prompt",
+        toastNeedBridgeAmt: "Nhập số lượng bridge hợp lệ.",
+        toastSameChain: "From và To phải khác nhau.",
+        cancelTitle: "Cancel Limit / Stop",
+        cancelHint: "AI Agent only · hủy lệnh Limit / Stop Limit đang treo (perp).",
+        riskCancel: "⚠️ Hủy nhầm lệnh có thể bỏ bảo vệ TP/SL. Simulate trước khi confirm.",
+        cancelPending: "Lệnh Agent đang theo dõi",
+        cancelSelected: "Hủy lệnh đã chọn",
+        cancelManual: "Nhập tay",
+        cancelMarket: "Market",
+        cancelSide: "Side",
+        cancelOrderType: "Order type",
+        cancelPrice: "Price / trigger (optional)",
+        cancelNotePh: "vd. Hủy Stop Limit Long BTC nếu chưa khớp…",
+        cancelConfirm: "Tạo Cancel Prompt",
+        toastNeedCancelOrder: "Chọn một lệnh đang treo hoặc chuyển sang nhập tay.",
+        noAgentOrders: "Chưa có Limit/Stop Agent — mở Perp và đặt lệnh trước.",
         earnNeedAmount: "Nhập số lượng Earn hợp lệ.",
+        earnNeedWallet: "Kết nối ví Web3 trước khi Earn.",
         earnSummary: "Earn (deposit): nạp {amount} {asset} vào {protocol} ({product}) trên BNB Smart Chain. Simulate trước, confirm rồi mới execute.",
         gateDeployAlert: "Chưa có địa chỉ AgentGate. Deploy contract rồi cập nhật frontend/config.js",
         gateCheckFail: "Check-in thất bại",
@@ -195,16 +340,45 @@ const I18N = {
         aiAdvisorDismiss: "Chỉ xem, không chốt",
         howtoWeb3Title: "Cách dùng (Web3)",
         howtoWeb3Steps: [
-            "<b>Kết nối ví</b> — MetaMask / Binance Wallet trên BSC.",
-            "<b>Gửi / Nhận / Swap</b> — ký trực tiếp trên ví.",
-            "<b>Perp / Predict</b> — mở Swap on-chain (ký ví).",
-            "<b>DeFi</b> — sắp ra mắt."
+            "<b>1. Kết nối ví</b> — MetaMask / Binance Wallet; chắc chắn đang ở <em>BNB Smart Chain</em>.",
+            "<b>2. Xem số dư</b> — danh sách token Popular; bấm ⋮ để bật/tắt hoặc thêm token tùy chỉnh.",
+            "<b>3. Gửi / Nhận / Swap</b> — thao tác ví thường; mỗi lần bấm Confirm sẽ mở popup ví để bạn ký.",
+            "<b>4. Earn</b> — Venus / Lista / Pancake LP: ký supply trực tiếp (Web3 không có Withdraw/Claim intent).",
+            "<b>5. Perp</b> — Market mở Swap ngay; Limit / Stop Limit treo theo Mark rồi mở Swap khi khớp (trình duyệt phải còn mở).",
+            "<b>6. Predict</b> — mở Swap on-chain theo hướng Yes/No (ký ví).",
+            "<b>7. Không thấy Launch / Approve / Bridge?</b> — các mode đó chỉ có ở tab <em>AI Agent</em> (intent + prompt)."
         ],
         dashDisclaimerWeb3: "Luồng Web3: bạn ký giao dịch trực tiếp bằng ví. Kiểm tra mạng BNB Smart Chain trước khi confirm. Không phải lời khuyên đầu tư.",
-        pillGate: "Agent ID gate", pillIntent: "AI Intent", pillChain: "BNB Chain", pillSimulate: "Simulate first",
-        loginStep1: "Có Agent ID (name.ai)", loginStep2: "Vào dashboard AgentGate", loginStep3: "Gửi intent cho AI Agent",
+        pillGate: "Agent ID gate", pillIntent: "AI Intent", pillChain: "BNB Smart Chain", pillSimulate: "Simulate first",
+        loginStep1: "Nhập Agent ID (name.ai) của bạn", loginStep2: "Mở Binance AI (hoặc copy prompt) → checkIn", loginStep3: "Vào dashboard — máy này tin 24 giờ",
         loginClaim: "Chưa có Agent ID? <a href=\"https://www.binance.com/en/download\" target=\"_blank\" rel=\"noopener\">Claim trong Binance App</a> (Wallet → banner Agent ID)",
-        popular: "Phổ biến", bnbMainnet: "BNB Chain · Mainnet", agentNft: "Agent ID NFT", loading: "Đang tải...",
+        popular: "Phổ biến", bnbMainnet: "BNB Smart Chain · Mainnet", agentNft: "Agent ID NFT", loading: "Đang tải...",
+        networkChip: "Mạng: BNB Smart Chain",
+        toastNetworkBsc: "Đang dùng BNB Smart Chain (Mainnet).",
+        toastSortValue: "Sắp xếp: giá trị USD",
+        toastSortName: "Sắp xếp: tên A→Z",
+        toastSortBalance: "Sắp xếp: số dư",
+        manageTokensTitle: "Quản lý token",
+        manageTokensHint: "Bật/tắt token trên dashboard · tìm theo tên hoặc ký hiệu (BNB Smart Chain).",
+        manageTokenSearchPh: "Nhập tên hoặc địa chỉ token",
+        showAllTokens: "Hiện tất cả",
+        hideZeroTokens: "Ẩn số dư 0",
+        tokensHiddenEmpty: "Không có token nào đang hiện. Mở ⋮ để bật lại.",
+        done: "Xong",
+        tokenVisible: "Hiện",
+        tokenHidden: "Ẩn",
+        addCustomToken: "Thêm token tùy chỉnh",
+        customTokenWarn: "Bất kỳ ai cũng có thể tạo token, gồm cả phiên bản giả mạo. Hãy kiểm tra địa chỉ hợp đồng trên BscScan trước khi thêm.",
+        networkLabel: "Mạng",
+        tokenContract: "Địa chỉ hợp đồng của token",
+        tokenContractPh: "Nhập địa chỉ token",
+        saveToken: "Lưu",
+        toastTokenSaved: "Đã thêm token tùy chỉnh.",
+        toastBadTokenAddr: "Địa chỉ token không hợp lệ.",
+        toastTokenExists: "Token này đã có trong danh sách.",
+        toastTokenLookup: "Đang đọc hợp đồng…",
+        toastTokenLookupFail: "Không đọc được token trên BSC.",
+        lockedToken: "Token gốc",
         recentIntents: "AI Agent intents gần đây", clear: "Xóa", noIntents: "Chưa có intent — thử Perp / Swap / Predict / Earn",
         history: "Lịch sử", back: "Quay lại",
         dashDisclaimer: "AgentGate không tự ký giao dịch. AI Agent phải simulate trước; bạn xác nhận mọi thao tác liên quan tài sản. Đây không phải lời khuyên đầu tư.",
@@ -231,14 +405,71 @@ const I18N = {
         noMarket: "Không có market phù hợp", noNft: "Không có Agent ID NFT", nftFail: "Không tải được NFT",
         loadingTx: "Đang tải giao dịch...", checking: "Đang kiểm tra...",
         noAgentId: "Không tìm thấy Agent ID.", invalidAddr: "Địa chỉ không hợp lệ. Hãy nhập name.ai",
-        agentOk: "Agent ID hợp lệ — đang mở dashboard...", noAgentOnAddr: "Địa chỉ này chưa có Agent ID.",
+        agentOk: "Agent ID hợp lệ — đang mở dashboard AI Agent...", noAgentOnAddr: "Agent ID / ví này chưa có Agent ID NFT.",
+        agentOkVerified: "Đã chứng minh ownership — mở đủ địa chỉ & số dư.",
         walletNoAgent: "Ví chưa có Agent ID. Claim trong Binance App (Wallet → Agent ID), hoặc Check bằng <b>name.ai</b>.",
         errPrefix: "Lỗi: ", gateRemind: "Nên Activate (check-in) hôm nay để ghi nhận on-chain",
         toastCopied: "Đã copy địa chỉ", toastCopiedPrompt: "Đã copy prompt AI Agent",
         toastCopiedJson: "Đã copy Intent JSON", toastClearedIntents: "Đã xóa lịch sử intent",
         toastCheckIn: "Đang check-in...", toastCheckInOk: "Check-in thành công",
         toastIntentLogged: "Đã log intent on-chain", toastSwapOk: "Swap thành công",
-        toastNoMark: "Chưa có Mark price", toastMarketOnly: "Demo: chỉ Market order → AI Agent",
+        toastNoMark: "Chưa có Mark price",
+        toastMarketOnly: "Web3 Perp chỉ hỗ trợ Market (mở Swap). Limit / Stop Limit dùng luồng AI Agent.",
+        toastNeedLimitPrice: "Nhập Limit price hợp lệ.",
+        toastNeedStopPrice: "Nhập Stop trigger và Stop limit price hợp lệ.",
+        toastLimitQueued: "Đã đặt Limit — chờ Mark khớp rồi mở Swap.",
+        toastStopQueued: "Đã đặt Stop Limit — chờ trigger rồi mở Swap.",
+        toastOrderCancelled: "Đã hủy lệnh chờ.",
+        toastOrderTriggered: "Lệnh khớp điều kiện — mở Swap để ký.",
+        perpHistoryEmpty: "Chưa có lịch sử lệnh.",
+        perpOrdersEmpty: "Chưa có Open Orders. Limit / Stop Limit (Web3) sẽ hiện ở đây.",
+        cancelOrder: "Hủy",
+        armedLabel: "Armed",
+        waitingLabel: "Waiting",
+        limitPrice: "Limit price", stopTrigger: "Stop trigger", stopLimitPrice: "Stop limit price", useMark: "Mark",
+        launch: "Launch",
+        launchTitle: "Launchpad",
+        launchHint: "Chỉ AI Agent · form launchpad thật → Launch tạo prompt (simulate → confirm → deploy BSC).",
+        riskLaunch: "⚠️ Deploy token/NFT tốn gas, rủi ro hợp đồng & thanh khoản. Quyền mint/ownable (nếu bật) thuộc hợp đồng bạn deploy — AgentGate không custodial, không tự ký. Agent phải simulate + bạn confirm trước.",
+        launchTabToken: "Create Token",
+        launchTabNft: "Create NFT",
+        logoPh: "Logo",
+        uploadLogo: "Tải logo",
+        logoUrlPh: "Hoặc dán URL logo (https://…)",
+        clearLogo: "Xóa",
+        tokenName: "Tên token",
+        tokenNamePh: "vd. AgentGate Coin",
+        tokenSymbol: "Ký hiệu",
+        tokenSymbolPh: "AGT",
+        tokenDecimals: "Decimals",
+        tokenSupply: "Tổng cung",
+        tokenSupplyPh: "1000000000",
+        tokenDesc: "Mô tả",
+        tokenDescPh: "Mô tả ngắn về token, utility, cộng đồng…",
+        tokenWebsite: "Website",
+        tokenTwitter: "Twitter / X",
+        tokenTelegram: "Telegram",
+        tokenMintable: "Mintable",
+        tokenBurnable: "Burnable",
+        tokenOwnable: "Ownable",
+        nftImagePh: "Ảnh NFT",
+        uploadNft: "Tải ảnh",
+        nftUrlPh: "Hoặc dán URL ảnh / IPFS",
+        nftName: "Tên NFT / collection",
+        nftNamePh: "vd. AgentGate Pass",
+        nftSymbol: "Symbol",
+        nftSupply: "Số lượng mint",
+        nftDesc: "Mô tả",
+        nftDescPh: "Mô tả NFT, utility, quyền lợi Agent ID…",
+        nftExternal: "Link ngoài (optional)",
+        launchConfirm: "Launch → tạo Prompt",
+        launchConfirmToken: "Launch Token → Prompt",
+        launchConfirmNft: "Launch NFT → Prompt",
+        toastNeedTokenName: "Nhập tên và ký hiệu token.",
+        toastNeedTokenSupply: "Nhập tổng cung hợp lệ (> 0).",
+        toastNeedNftName: "Nhập tên NFT / collection.",
+        toastNeedNftImage: "Tải ảnh hoặc dán URL ảnh NFT.",
+        toastLogoTooBig: "Logo lớn — chỉ lưu metadata; agent sẽ hỏi URL/IPFS.",
         toastLeaderboard: "Leaderboard — sắp ra mắt", toastAnalyzing: "Đang phân tích...",
         toastAnalyzeFail: "Phân tích thất bại — thử lại", analyzeMarket: "Phân tích thị trường",
         toastNoAdvice: "Chưa có gợi ý hợp lệ", markErr: "Lỗi dữ liệu", markFail: "Không tải được",
@@ -265,7 +496,7 @@ const I18N = {
         txSent: "Đã gửi giao dịch",
         txOk: "Giao dịch thành công",
         txFail: "Giao dịch thất bại",
-        web3PerpNote: "Web3: Long/Short mở Swap PancakeSwap (ký ví). Perp đòn bẩy đầy đủ dùng tab AI Agent.",
+        web3PerpNote: "Web3: Market mở Swap ngay. Limit / Stop Limit theo dõi Mark trên trình duyệt → khớp thì mở Swap (ký ví).",
         web3PredNote: "Web3: Predict mở Swap on-chain (ký ví). Market predict đầy đủ dùng tab AI Agent.",
         web3OpenSwap: "Đã mở Swap — kiểm tra cặp & số lượng rồi bấm Swap (ký ví).",
         sendOk: "Gửi thành công",
@@ -281,6 +512,12 @@ const I18N = {
         errRpc: "Ví/RPC từ chối giao dịch (thường do thiếu tiền, gas, hoặc quote swap lỗi). Kiểm tra số dư USDT + BNB gas trên BSC.",
         perpAdvisor: "Perp Advisor", predictAdvisor: "Predict Advisor",
         askAiPh: "Hỏi AgentGate AI…",
+        pickPair: "Chọn cặp",
+        perpMarkets: "Markets", perpChart: "Chart", perpTrade: "Trade",
+        perpMarketsTitle: "Hợp đồng vĩnh cửu",
+        perpSearchPh: "Tìm cặp…",
+        perpColSym: "Mã / Lev", perpColPrice: "Giá / 24h",
+        perpOpenLong: "Mở Long", perpOpenShort: "Mở Short",
         chipLongShort: "Long / Short", chipSafeLev: "Safe lev", chipTpSl: "TP / SL",
         chipYesNo: "Yes / No", chipHot: "Hot", chipSafeStake: "Safe stake",
         chipQLongShort: "Long hay Short cặp này?",
@@ -317,41 +554,166 @@ const I18N = {
     },
     en: {
         settings: "Settings", language: "Language", theme: "Theme", themeLight: "Light", themeDark: "Dark",
-        howto: "How to use", howtoTitle: "How to use AgentGate", collapse: "Collapse", live: "Live",
-        howtoNote: "AgentGate never auto-signs. Not financial advice.",
+        howto: "How to use", howtoTitle: "How to use AI Agent", collapse: "Collapse", live: "Live",
+        howtoNote: "Golden rule: AgentGate never auto-signs. Your AI Agent must simulate first — you confirm before execute. BNB Smart Chain only. Not financial advice.",
         howtoSteps: [
-            "<b>Activate</b> — on-chain check-in (Agent ID only, no funds moved).",
-            "<b>Pick a mode</b> — Perp, Prediction, Swap / Send, or Earn.",
-            "<b>Ask AI Advisor</b> if unsure (AI bubble on Perp/Predict).",
-            "<b>Confirm</b> → copy prompt → paste into AI Agent; agent must <em>simulate first</em>, then you confirm."
+            "<b>1. Open your own Agent ID</b> — enter <em>your</em> <em>name.ai</em> (claim in Binance App if needed). <em>No Web3 wallet required</em> — this is the AI Agent path. Not a lookup tool for other wallets.",
+            "<b>2. Activate AgentGate</b> — create a checkIn prompt for your AI Agent / Agentic Wallet (Agent ID only, <em>no funds moved</em>). Address & balances unlock after Activate.",
+            "<b>3. Pick a hand / mode</b> — dashboard: <em>Perp</em>, <em>Predict</em>, <em>Launch</em>, Send / Receive / Swap / Earn, or <em>AI Agent tools</em> (Approve, Bridge, Cancel).",
+            "<b>4. Fill a real form</b> — e.g. Perp (Market/Limit/Stop), Earn (Deposit/Withdraw/Claim), Launch Token/NFT, Approve spender, Bridge routes…",
+            "<b>5. Confirm → create Prompt</b> — tap the primary button; AgentGate opens the intent and <em>copies the prompt</em> to clipboard.",
+            "<b>6. Paste into your AI Agent</b> — Claude / Codex / Binance Agent / TWAK. It reads INTENT_JSON, <em>simulates first</em>, shows risks, then waits for your confirm before signing.",
+            "<b>7. On-chain audit</b> — prompts require <em>logIntent</em> then <em>recordAction</em> on AgentGate before moving funds (when the contract is configured).",
+            "<b>8. Track & manage</b> — reopen from <em>Recent AI Agent intents</em>; cancel Limit/Stop via <em>Cancel</em>; manage the token list with ⋮ like MetaMask."
         ],
         predict: "Prediction", estBalance: "Your Estimated Balance", pnlToday: "Today's PnL",
         activateGate: "Activate AgentGate (on-chain check-in)",
         gateOk: "Checked in on-chain ✓", gateNeedActivate: "Not checked in — tap Activate",
         gateNoDeploy: "AgentGate not deployed — set address in config.js", gateReadFail: "Cannot read gate status",
         send: "Send", receive: "Receive", swap: "Swap", check: "Check",
-        subtitle: "Pick a path to start — regular Web3 wallet or AI Agent (Agent ID).",
+        subtitle: "Pick a path to start — regular Web3 wallet or AI Agent (your Agent ID).",
         placeholder: "e.g. yourname.ai", connect: "Connect wallet", connectWeb3: "Connect wallet", connected: "Connected",
-        loginDivider: "or open with Agent ID", loginTitle: "BNB Chain<br>AgentGate",
-        flowWeb3: "Web3 Wallet", flowAgent: "AI Agent",
-        flowWeb3Desc: "Connect wallet → balances → Send / Receive / Swap. Perp & Predict open on-chain Swap. DeFi coming soon.",
-        flowAgentDesc: "AI Agent path: open with name.ai, create intents (including Earn), paste prompts to your AI Agent — simulate first, then you confirm.",
-        pillWeb3: "MetaMask / Binance", pillDirect: "Direct sign",
+        loginDivider: "or open with Agent ID", loginTitle: "AgentGate",
+        flowWeb3: "Web3 Wallet", flowAgent: "AI Agent", flowAbout: "About",
+        flowWeb3Desc: "Connect wallet → balances → Send / Receive / Swap / Earn (Venus). Perp & Predict open on-chain Swap. DeFi tab coming soon.",
+        flowAgentDesc: "AI Agent path: enter name.ai → verify with Binance AI / prompt (no name/wallet in prompt) → dashboard. This device trusts you for 24h. Not for looking up other wallets.",
+        aboutKicker: "Binance Wallet × BNB Chain · Agent ID Hackathon",
+        aboutTitle: "About AgentGate",
+        aboutTagline: "An ownership-gated gate: only your Agent ID unlocks the Web3 × AI Agent dashboard on BNB Smart Chain.",
+        aboutMetricLabel: "Agent IDs that interacted on-chain",
+        aboutP1: "AgentGate proves you own name.ai with an on-chain checkIn (Binance AI / privacy prompt, or owner wallet). Only then unlock balances, Swap / Perp / Predict / Earn, and Approve · Bridge · Cancel tools.",
+        aboutP2: "The AI Agent path always follows simulate → confirm → execute. AgentGate never auto-signs, never stores seeds / keys, and never uses web QR login for Agentic Wallet.",
+        aboutPoint1: "Two entry paths: Web3 Wallet or AI Agent (Agent ID)",
+        aboutPoint2: "24h device trust after verify; logout clears trust",
+        aboutPoint3: "On-chain intents: checkIn · logIntent · recordAction",
+        aboutPoint4: "Not a tool to look up other wallets by name",
+        aboutRoadmapTitle: "Vision",
+        aboutRoadmapNote: "Shipped today → long-term direction. Technical vision — not a promise of auto-trading or making money for you. Asset moves still require user confirm.",
+        aboutVisionNow: "Now",
+        aboutVisionNext: "Vision",
+        aboutVisionNow1: "Identity gate via <code>name.ai</code>",
+        aboutVisionNow2: "Intent → simulate → user confirm → sign",
+        aboutVisionNow3: "On-chain audit (<code>checkIn</code> / <code>logIntent</code>)",
+        aboutVisionNow4: "Dual Web3 × Agent",
+        aboutVisionNext1: "Agent runs inside user-granted permissions / limits — fewer steps, still controlled",
+        aboutVisionNext2: "One-tap UX like a CEX (still confirm when moving assets)",
+        aboutVisionNext3: "Deep risk sense + personal policy compliance",
+        aboutVisionNext4: "Own liquidity / social / distribution",
+        aboutVisionNext5: "<b>Ship in-dashboard AI like ChatGPT, Grok, Claude for day-to-day work</b>",
+        aboutDisclaimer: "Community project for the Agent ID Hackathon — not an official Binance / BNB Chain product, and not sponsored or endorsed by Binance.",
+        aboutLinkBsc: "Contract on BscScan",
+        aboutLinkGh: "Source on GitHub",
+        aboutFeedbackTitle: "Contact / Feedback",
+        aboutFeedbackHint: "Product feedback or technical questions — not for wallet login.",
+        aboutBadge: "COMMUNITY PROJECT",
+        aboutCtaAgent: "Open AI Agent",
+        aboutCtaWeb3: "Open Web3",
+        aboutSubtitle: "What AgentGate is, how Agent ID is used, and contract / source links.",
+        pillWeb3: "MetaMask / Binance Wallet", pillDirect: "Direct sign",
         web3Step1: "Install / open MetaMask or Binance Wallet", web3Step2: "Connect wallet on BNB Smart Chain", web3Step3: "Send / Swap / trade directly with your wallet",
-        brandWeb3: "BNB · Web3 Wallet", brandAgent: "BNB · Agentic Wallet",
+        brandWeb3: "Web3 Wallet · BNB Smart Chain", brandAgent: "Agentic Wallet · BNB Smart Chain",
+        loginStep1: "Enter your Agent ID (name.ai)",
+        loginStep2: "Open Binance AI (or copy prompt) → checkIn",
+        loginStep3: "Enter dashboard — this device trusts you for 24h",
+        agentNeedOwnWallet: "Optional: connect the Agent ID owner wallet to verify this device now.",
+        agentOwnerMismatch: "Connected Web3 wallet does not match this Agent ID.",
+        agentUnverifiedBanner: "Not verified — return home to open Binance AI / checkIn.",
+        addressHidden: "Hidden until verified",
+        toastNeedOwnership: "Verify your Agent ID first.",
+        optionalOwnerWallet: "Optional: connect owner wallet",
+        agentVerifyTitle: "Verify with AI Agent",
+        agentVerifyHint: "Prompt has no name.ai / wallet address. Prefer Open Binance AI (prompt already copied). After checkIn this page opens the dashboard. This device is trusted for 24h.",
+        agentVerifyWaiting: "Waiting for on-chain checkIn…",
+        agentVerifyOk: "Verified — opening dashboard…",
+        agentVerifyHandleLabel: "Ready to verify · 24h trust after OK",
+        openBinanceAi: "Open Binance AI",
+        agentVerifyIConfirmed: "I've confirmed",
+        agentVerifyTrustHint: "This device remembers for 24h — no re-prompt every tab open.",
+        toastBinanceAiOpened: "Prompt copied — paste into Binance AI and confirm checkIn.",
+        toastVerifyPolling: "Checking on-chain again…",
         earn: "Earn", defi: "DeFi", stocks: "Stocks", soonBadge: "Soon",
         stocksNote: "Reference prices · not tradable on-chain yet",
         toastComingSoon: "Coming soon — DeFi tab in a later release.",
-        toastEarnWeb3Soon: "On-chain Earn (wallet sign) coming soon. Use the AI Agent path to create an Earn intent.",
         toastEarnNeedAgent: "Open with Agent ID (.ai), then use Earn to create an intent.",
+        toastEarnWeb3OnlyVenus: "Web3 Earn currently supports Venus (BNB/USDT). Other protocols use AI Agent.",
+        toastEarnOk: "Earn successful",
+        toastEarnFail: "Earn failed",
         toastStockSoon: "Stocks: demo quotes — trading comes later.",
         earnTitle: "Earn",
-        earnHint: "Deposit into an on-chain protocol on BNB Chain — AI Agent simulates first; you confirm before execute.",
-        riskEarn: "⚠️ Risk: smart contract / depeg / APY changes. Not CEX Simple Earn.",
+        earnHint: "Venus / Lista / Pancake LP on BSC. Web3: wallet sign. AI Agent: intent → simulate → confirm.",
+        riskEarn: "⚠️ Risk: smart contract / liquidity / APY changes. Not CEX Simple Earn.",
         earnProtocol: "Protocol",
         earnProduct: "Product",
         earnConfirm: "Create Earn Intent",
+        earnConfirmWeb3: "Supply (sign wallet)",
+        earnDeposit: "Deposit",
+        earnWithdraw: "Withdraw",
+        earnClaim: "Claim",
+        earnConfirmWithdraw: "Create Withdraw Intent",
+        earnConfirmClaim: "Create Claim Intent",
+        agentTools: "AI Agent tools",
+        walletActions: "Wallet",
+        workspaceTitle: "Workspace",
+        wsTrade: "Trade",
+        wsCreate: "Create",
+        wsTools: "Tools",
+        wsAbout: "About",
+        wsCreateHint: "Create Token / NFT → prompt for AI Agent.",
+        approvals: "Approve",
+        approvalsSub: "Token allowance",
+        bridge: "Bridge",
+        bridgeSub: "Cross-chain",
+        cancelOrders: "Cancel",
+        cancelOrdersSub: "Limit / Stop",
+        approvalsTitle: "Approve / Revoke",
+        approvalsHint: "AI Agent only · manage BEP-20 allowances on BSC before swap/earn/bridge.",
+        riskApprove: "⚠️ Wrong spender can drain tokens. Default is Exact amount — enable Unlimited only if you understand MaxUint256 risk.",
+        riskApproveUnlimited: "⚠️ Unlimited = MaxUint256. The spender may use the full allowance. Only use with official contracts you trust.",
+        approveAction: "Approve",
+        revokeAction: "Revoke",
+        approveSpender: "Spender",
+        spenderPcs: "PancakeSwap Router V2",
+        spenderVenus: "Venus vUSDT",
+        spenderCustom: "Custom address…",
+        spenderCustomPh: "0x… spender",
+        approveAmount: "Allowance",
+        approveUnlimited: "Unlimited",
+        approveExact: "Exact amount",
+        approveNote: "Note for Agent",
+        approveNotePh: "e.g. Approve USDT for PCS before swap…",
+        approvalsConfirm: "Create Approve Prompt",
+        toastNeedSpender: "Enter a valid spender address.",
+        toastNeedApproveAmt: "Enter a valid allowance amount.",
+        bridgeTitle: "Bridge",
+        bridgeHint: "AI Agent only · build a bridge intent (simulate → confirm). Default source BSC.",
+        riskBridge: "⚠️ Bridging has finality / wrong-address / scam risks. Use reputable bridges only.",
+        bridgeFrom: "From chain",
+        bridgeTo: "To chain",
+        bridgeToken: "Token",
+        bridgeDest: "Destination address",
+        bridgeDestPh: "0x… (defaults to Agent wallet)",
+        bridgeProvider: "Bridge provider",
+        bridgeSlippage: "Max slippage %",
+        bridgeNotePh: "e.g. Bridge USDT BSC → ETH, prefer low fee…",
+        bridgeConfirm: "Create Bridge Prompt",
+        toastNeedBridgeAmt: "Enter a valid bridge amount.",
+        toastSameChain: "From and To must differ.",
+        cancelTitle: "Cancel Limit / Stop",
+        cancelHint: "AI Agent only · cancel hanging Limit / Stop Limit perp orders.",
+        riskCancel: "⚠️ Cancelling the wrong order may remove TP/SL protection. Simulate first.",
+        cancelPending: "Tracked Agent orders",
+        cancelSelected: "Cancel selected",
+        cancelManual: "Manual entry",
+        cancelMarket: "Market",
+        cancelSide: "Side",
+        cancelOrderType: "Order type",
+        cancelPrice: "Price / trigger (optional)",
+        cancelNotePh: "e.g. Cancel BTC Long Stop Limit if unfilled…",
+        cancelConfirm: "Create Cancel Prompt",
+        toastNeedCancelOrder: "Select a tracked order or switch to manual entry.",
+        noAgentOrders: "No Agent Limit/Stop yet — place one from Perp first.",
         earnNeedAmount: "Enter a valid Earn amount.",
+        earnNeedWallet: "Connect a Web3 wallet before Earn.",
         earnSummary: "Earn (deposit): supply {amount} {asset} into {protocol} ({product}) on BNB Smart Chain. Simulate first, then confirm before execute.",
         gateDeployAlert: "AgentGate address missing. Deploy the contract and set it in frontend/config.js",
         gateCheckFail: "Check-in failed",
@@ -362,16 +724,45 @@ const I18N = {
         aiAdvisorDismiss: "View only, don't apply",
         howtoWeb3Title: "How to use (Web3)",
         howtoWeb3Steps: [
-            "<b>Connect wallet</b> — MetaMask / Binance Wallet on BSC.",
-            "<b>Send / Receive / Swap</b> — sign directly in your wallet.",
-            "<b>Perp / Predict</b> — opens on-chain Swap (wallet sign).",
-            "<b>DeFi</b> — coming soon."
+            "<b>1. Connect wallet</b> — MetaMask / Binance Wallet; stay on <em>BNB Smart Chain</em>.",
+            "<b>2. Check balances</b> — Popular token list; tap ⋮ to show/hide or add a custom token.",
+            "<b>3. Send / Receive / Swap</b> — normal wallet UX; Confirm opens your wallet popup to sign.",
+            "<b>4. Earn</b> — Venus / Lista / Pancake LP: sign supply directly (no Withdraw/Claim intent on Web3).",
+            "<b>5. Perp</b> — Market opens Swap now; Limit / Stop Limit watches Mark then opens Swap when filled (keep the tab open).",
+            "<b>6. Predict</b> — opens on-chain Swap for Yes/No (wallet sign).",
+            "<b>7. Missing Launch / Approve / Bridge?</b> — those modes exist only on the <em>AI Agent</em> tab (intent + prompt)."
         ],
         dashDisclaimerWeb3: "Web3 path: you sign transactions directly with your wallet. Check BNB Smart Chain before confirming. Not financial advice.",
-        pillGate: "Agent ID gate", pillIntent: "AI Intent", pillChain: "BNB Chain", pillSimulate: "Simulate first",
-        loginStep1: "Have an Agent ID (name.ai)", loginStep2: "Enter AgentGate dashboard", loginStep3: "Send intent to AI Agent",
+        pillGate: "Agent ID gate", pillIntent: "AI Intent", pillChain: "BNB Smart Chain", pillSimulate: "Simulate first",
+        loginStep1: "Enter your Agent ID (name.ai)", loginStep2: "Open Binance AI (or copy prompt) → checkIn", loginStep3: "Enter dashboard — this device trusts you for 24h",
         loginClaim: "No Agent ID yet? <a href=\"https://www.binance.com/en/download\" target=\"_blank\" rel=\"noopener\">Claim in Binance App</a> (Wallet → Agent ID banner)",
-        popular: "Popular", bnbMainnet: "BNB Chain · Mainnet", agentNft: "Agent ID NFT", loading: "Loading...",
+        popular: "Popular", bnbMainnet: "BNB Smart Chain · Mainnet", agentNft: "Agent ID NFT", loading: "Loading...",
+        networkChip: "Network: BNB Smart Chain",
+        toastNetworkBsc: "Using BNB Smart Chain (Mainnet).",
+        toastSortValue: "Sort: USD value",
+        toastSortName: "Sort: name A→Z",
+        toastSortBalance: "Sort: balance",
+        manageTokensTitle: "Manage tokens",
+        manageTokensHint: "Show/hide tokens on the dashboard · search by name or symbol (BNB Smart Chain).",
+        manageTokenSearchPh: "Enter token name or address",
+        showAllTokens: "Show all",
+        hideZeroTokens: "Hide zero balances",
+        tokensHiddenEmpty: "No tokens visible. Open ⋮ to enable some.",
+        done: "Done",
+        tokenVisible: "Shown",
+        tokenHidden: "Hidden",
+        addCustomToken: "Add custom token",
+        customTokenWarn: "Anyone can create a token, including fake versions of existing ones. Verify the contract on BscScan before adding.",
+        networkLabel: "Network",
+        tokenContract: "Token contract address",
+        tokenContractPh: "Enter token address",
+        saveToken: "Save",
+        toastTokenSaved: "Custom token added.",
+        toastBadTokenAddr: "Invalid token address.",
+        toastTokenExists: "This token is already in your list.",
+        toastTokenLookup: "Reading contract…",
+        toastTokenLookupFail: "Could not read token on BSC.",
+        lockedToken: "Built-in token",
         recentIntents: "Recent AI Agent intents", clear: "Clear", noIntents: "No intents yet — try Perp / Swap / Predict / Earn",
         history: "History", back: "Back",
         dashDisclaimer: "AgentGate never auto-signs. AI Agent must simulate first; you confirm every asset move. Not financial advice.",
@@ -398,14 +789,71 @@ const I18N = {
         noMarket: "No matching markets", noNft: "No Agent ID NFT", nftFail: "Failed to load NFT",
         loadingTx: "Loading transactions...", checking: "Checking...",
         noAgentId: "Agent ID not found.", invalidAddr: "Invalid address. Enter a name.ai",
-        agentOk: "Valid Agent ID — opening dashboard...", noAgentOnAddr: "This address has no Agent ID.",
+        agentOk: "Valid Agent ID — opening AI Agent dashboard...", noAgentOnAddr: "This Agent ID / wallet has no Agent ID NFT.",
+        agentOkVerified: "Ownership proven — address & balances unlocked.",
         walletNoAgent: "Wallet has no Agent ID. Claim in Binance App (Wallet → Agent ID), or Check with <b>name.ai</b>.",
         errPrefix: "Error: ", gateRemind: "Activate (check-in) today to record on-chain",
         toastCopied: "Address copied", toastCopiedPrompt: "AI Agent prompt copied",
         toastCopiedJson: "Intent JSON copied", toastClearedIntents: "Intent history cleared",
         toastCheckIn: "Checking in...", toastCheckInOk: "Check-in successful",
         toastIntentLogged: "Intent logged on-chain", toastSwapOk: "Swap successful",
-        toastNoMark: "No Mark price yet", toastMarketOnly: "Demo: Market order only → AI Agent",
+        toastNoMark: "No Mark price yet",
+        toastMarketOnly: "Web3 Perp supports Market only (opens Swap). Use AI Agent for Limit / Stop Limit.",
+        toastNeedLimitPrice: "Enter a valid Limit price.",
+        toastNeedStopPrice: "Enter valid Stop trigger and Stop limit price.",
+        toastLimitQueued: "Limit placed — watching Mark, then opens Swap.",
+        toastStopQueued: "Stop Limit placed — watching trigger, then opens Swap.",
+        toastOrderCancelled: "Pending order cancelled.",
+        toastOrderTriggered: "Order conditions met — open Swap to sign.",
+        perpHistoryEmpty: "No order history yet.",
+        perpOrdersEmpty: "No open orders. Web3 Limit / Stop Limit appear here.",
+        cancelOrder: "Cancel",
+        armedLabel: "Armed",
+        waitingLabel: "Waiting",
+        limitPrice: "Limit price", stopTrigger: "Stop trigger", stopLimitPrice: "Stop limit price", useMark: "Mark",
+        launch: "Launch",
+        launchTitle: "Launchpad",
+        launchHint: "AI Agent only · real launchpad form → Launch builds a prompt (simulate → confirm → deploy on BSC).",
+        riskLaunch: "⚠️ Deploying tokens/NFTs costs gas and carries contract/liquidity risk. Mint/ownable rights (if enabled) belong to the contract you deploy — AgentGate is non-custodial and never auto-signs. Agent must simulate; you confirm.",
+        launchTabToken: "Create Token",
+        launchTabNft: "Create NFT",
+        logoPh: "Logo",
+        uploadLogo: "Upload logo",
+        logoUrlPh: "Or paste logo URL (https://…)",
+        clearLogo: "Clear",
+        tokenName: "Token name",
+        tokenNamePh: "e.g. AgentGate Coin",
+        tokenSymbol: "Symbol",
+        tokenSymbolPh: "AGT",
+        tokenDecimals: "Decimals",
+        tokenSupply: "Total supply",
+        tokenSupplyPh: "1000000000",
+        tokenDesc: "Description",
+        tokenDescPh: "Short description, utility, community…",
+        tokenWebsite: "Website",
+        tokenTwitter: "Twitter / X",
+        tokenTelegram: "Telegram",
+        tokenMintable: "Mintable",
+        tokenBurnable: "Burnable",
+        tokenOwnable: "Ownable",
+        nftImagePh: "NFT image",
+        uploadNft: "Upload image",
+        nftUrlPh: "Or paste image / IPFS URL",
+        nftName: "NFT / collection name",
+        nftNamePh: "e.g. AgentGate Pass",
+        nftSymbol: "Symbol",
+        nftSupply: "Mint quantity",
+        nftDesc: "Description",
+        nftDescPh: "NFT utility, Agent ID perks…",
+        nftExternal: "External link (optional)",
+        launchConfirm: "Launch → create Prompt",
+        launchConfirmToken: "Launch Token → Prompt",
+        launchConfirmNft: "Launch NFT → Prompt",
+        toastNeedTokenName: "Enter token name and symbol.",
+        toastNeedTokenSupply: "Enter a valid total supply (> 0).",
+        toastNeedNftName: "Enter NFT / collection name.",
+        toastNeedNftImage: "Upload an image or paste an NFT image URL.",
+        toastLogoTooBig: "Logo is large — metadata only; agent will ask for URL/IPFS.",
         toastLeaderboard: "Leaderboard — coming soon", toastAnalyzing: "Analyzing...",
         toastAnalyzeFail: "Analysis failed — try again", analyzeMarket: "Analyze market",
         toastNoAdvice: "No valid advice yet", markErr: "Data error", markFail: "Failed to load",
@@ -432,7 +880,7 @@ const I18N = {
         txSent: "Transaction submitted",
         txOk: "Transaction successful",
         txFail: "Transaction failed",
-        web3PerpNote: "Web3: Long/Short opens PancakeSwap (wallet sign). Full leveraged perps are on the AI Agent tab.",
+        web3PerpNote: "Web3: Market opens Swap now. Limit / Stop Limit watch Mark in-browser → open Swap when filled (wallet sign).",
         web3PredNote: "Web3: Predict opens an on-chain Swap (wallet sign). Full prediction markets are on the AI Agent tab.",
         web3OpenSwap: "Swap opened — check pair & amount, then confirm Swap in your wallet.",
         sendOk: "Sent successfully",
@@ -448,6 +896,12 @@ const I18N = {
         errRpc: "Wallet/RPC rejected the tx (often low balance, gas, or bad swap quote). Check USDT + BNB gas on BSC.",
         perpAdvisor: "Perp Advisor", predictAdvisor: "Predict Advisor",
         askAiPh: "Ask AgentGate AI…",
+        pickPair: "Select pair",
+        perpMarkets: "Markets", perpChart: "Chart", perpTrade: "Trade",
+        perpMarketsTitle: "Perpetual contracts",
+        perpSearchPh: "Search pair…",
+        perpColSym: "Symbol / Lev", perpColPrice: "Price / 24h",
+        perpOpenLong: "Open Long", perpOpenShort: "Open Short",
         chipLongShort: "Long / Short", chipSafeLev: "Safe lev", chipTpSl: "TP / SL",
         chipYesNo: "Yes / No", chipHot: "Hot", chipSafeStake: "Safe stake",
         chipQLongShort: "Long or Short this pair?",
@@ -484,41 +938,166 @@ const I18N = {
     },
     zh: {
         settings: "设置", language: "语言", theme: "主题", themeLight: "浅色", themeDark: "深色",
-        howto: "使用指南", howtoTitle: "如何使用 AgentGate", collapse: "收起", live: "Live",
-        howtoNote: "AgentGate 不会自动签名。不构成投资建议。",
+        howto: "使用指南", howtoTitle: "如何使用 AI Agent", collapse: "收起", live: "Live",
+        howtoNote: "黄金规则：AgentGate 不会自动签名。AI Agent 必须先 simulate — 由你确认后再执行。仅 BNB Smart Chain。不构成投资建议。",
         howtoSteps: [
-            "<b>Activate</b> — 链上 check-in（仅 Agent ID，不转移资金）。",
-            "<b>选择模式</b> — Perp、预测、Swap / 转账，或 Earn。",
-            "<b>询问 AI Advisor</b>（Perp/Predict 右下角 AI 气泡）。",
-            "<b>确认下单</b> → 复制 prompt → 粘贴到 AI Agent；必须先 <em>simulate</em>，再由你确认执行。"
+            "<b>1. 打开你自己的 Agent ID</b> — 输入你的 <em>name.ai</em>（没有可在 Binance App 领取）。<em>不需要 Web3 钱包</em> — 这是 AI Agent 路径。禁止用于查询他人钱包。",
+            "<b>2. Activate AgentGate</b> — 为 AI Agent / Agentic Wallet 生成 checkIn prompt（仅验证 Agent ID，<em>不转移资金</em>）。Activate 后才解锁地址与余额。",
+            "<b>3. 选择能力 / 模式</b> — 仪表盘：<em>Perp</em>、<em>预测</em>、<em>Launch</em>、转账 / 收款 / Swap / Earn，或 <em>AI Agent tools</em>（Approve、Bridge、Cancel）。",
+            "<b>4. 像真实应用一样填表</b> — 例如 Perp（Market/Limit/Stop）、Earn（Deposit/Withdraw/Claim）、Launch Token/NFT、Approve spender、Bridge 路由…",
+            "<b>5. 确认 → 生成 Prompt</b> — 点击主按钮；AgentGate 打开 intent 并<em>自动复制 prompt</em>。",
+            "<b>6. 粘贴到 AI Agent</b> — Claude / Codex / Binance Agent / TWAK。读取 INTENT_JSON，先 <em>simulate</em>、提示风险，等你确认后再签名/广播。",
+            "<b>7. 链上审计</b> — prompt 要求在动用资金前调用 AgentGate 的 <em>logIntent</em> 与 <em>recordAction</em>（合约已配置时）。",
+            "<b>8. 跟踪与管理</b> — 在 <em>最近 AI Agent intents</em> 重新打开；用 <em>Cancel</em> 取消 Limit/Stop；用 ⋮ 像 MetaMask 一样管理代币列表。"
         ],
         predict: "预测", estBalance: "预估余额", pnlToday: "今日盈亏",
         activateGate: "激活 AgentGate（链上 check-in）",
         gateOk: "已完成链上 check-in ✓", gateNeedActivate: "尚未 check-in — 请点击 Activate",
         gateNoDeploy: "尚未部署 AgentGate — 请在 config.js 填写地址", gateReadFail: "无法读取 gate 状态",
         send: "转账", receive: "收款", swap: "兑换", check: "检查",
-        subtitle: "选择一条路径开始 — 普通 Web3 钱包或 AI Agent（Agent ID）。",
+        subtitle: "选择一条路径开始 — 普通 Web3 钱包或 AI Agent（你的 Agent ID）。",
         placeholder: "例如：yourname.ai", connect: "连接钱包", connectWeb3: "连接钱包", connected: "已连接",
-        loginDivider: "或使用 Agent ID 打开", loginTitle: "BNB Chain<br>AgentGate",
-        flowWeb3: "Web3 Wallet", flowAgent: "AI Agent",
-        flowWeb3Desc: "连接钱包 → 余额 → 转账 / 收款 / Swap。Perp 与预测会打开链上 Swap。DeFi 即将推出。",
-        flowAgentDesc: "AI Agent 路径：用 name.ai 打开，创建意图（含 Earn），把 prompt 粘贴给 AI Agent — 先 simulate，再由你确认执行。",
-        pillWeb3: "MetaMask / Binance", pillDirect: "直接签名",
+        loginDivider: "或使用 Agent ID 打开", loginTitle: "AgentGate",
+        flowWeb3: "Web3 Wallet", flowAgent: "AI Agent", flowAbout: "介绍",
+        flowWeb3Desc: "连接钱包 → 余额 → 转账 / 收款 / Swap / Earn（Venus）。Perp 与预测会打开链上 Swap。DeFi 标签页即将推出。",
+        flowAgentDesc: "AI Agent 路径：输入 name.ai → 通过 Binance AI / prompt 验证（不暴露名称/地址）→ 进入仪表盘。本机信任 24 小时。禁止用于查询他人钱包。",
+        aboutKicker: "Binance Wallet × BNB Chain · Agent ID 黑客松",
+        aboutTitle: "关于 AgentGate",
+        aboutTagline: "所有权门控：只有你的 Agent ID 才能打开 BNB Smart Chain 上的 Web3 × AI Agent 仪表盘。",
+        aboutMetricLabel: "已链上交互的 Agent ID",
+        aboutP1: "AgentGate 通过链上 checkIn（Binance AI / 隐私 prompt，或所有者钱包）证明你拥有 name.ai。通过后才解锁余额、Swap / Perp / Predict / Earn，以及 Approve · Bridge · Cancel 工具。",
+        aboutP2: "AI Agent 路径始终遵循 simulate → confirm → execute。AgentGate 不会自动签名，不存储助记词 / 私钥，也不通过网页 QR 登录 Agentic Wallet。",
+        aboutPoint1: "两条入口：Web3 Wallet 或 AI Agent（Agent ID）",
+        aboutPoint2: "验证后本机信任 24 小时；退出登录清除信任",
+        aboutPoint3: "链上意图：checkIn · logIntent · recordAction",
+        aboutPoint4: "不是按名称查询他人钱包的工具",
+        aboutRoadmapTitle: "愿景",
+        aboutRoadmapNote: "已上线 → 长期方向。技术愿景 — 不承诺自动交易或代你赚钱。涉及资产仍需用户确认。",
+        aboutVisionNow: "已有",
+        aboutVisionNext: "愿景",
+        aboutVisionNow1: "通过 <code>name.ai</code> 做 Identity gate",
+        aboutVisionNow2: "Intent → simulate → user confirm → 签名",
+        aboutVisionNow3: "链上审计（<code>checkIn</code> / <code>logIntent</code>）",
+        aboutVisionNow4: "双路径 Web3 × Agent",
+        aboutVisionNext1: "Agent 在用户已授权的 permission / 限额内运行 — 更少步骤，仍有控制",
+        aboutVisionNext2: "像 CEX 一样的一键 UX（动用资产仍需 confirm）",
+        aboutVisionNext3: "更深的风险理解 + 遵守个人 policy",
+        aboutVisionNext4: "自有流动性 / 社交 / 分发",
+        aboutVisionNext5: "<b>在 Dashboard 工作台内嵌 ChatGPT、Grok、Claude 级 AI</b>",
+        aboutDisclaimer: "面向 Agent ID 黑客松的社区项目 — 非 Binance / BNB Chain 官方产品，未获 Binance 赞助或背书。",
+        aboutLinkBsc: "BscScan 合约",
+        aboutLinkGh: "GitHub 源码",
+        aboutFeedbackTitle: "联系 / Feedback",
+        aboutFeedbackHint: "产品反馈或技术问题 — 不用于钱包登录。",
+        aboutBadge: "社区项目",
+        aboutCtaAgent: "进入 AI Agent",
+        aboutCtaWeb3: "进入 Web3",
+        aboutSubtitle: "AgentGate 是什么、如何使用 Agent ID，以及合约 / 源码链接。",
+        pillWeb3: "MetaMask / Binance Wallet", pillDirect: "直接签名",
         web3Step1: "安装 / 打开 MetaMask 或 Binance Wallet", web3Step2: "在 BNB Smart Chain 连接钱包", web3Step3: "用钱包直接转账 / Swap / 交易",
-        brandWeb3: "BNB · Web3 Wallet", brandAgent: "BNB · Agentic Wallet",
+        brandWeb3: "Web3 Wallet · BNB Smart Chain", brandAgent: "Agentic Wallet · BNB Smart Chain",
+        loginStep1: "输入你的 Agent ID (name.ai)",
+        loginStep2: "打开 Binance AI（或复制 prompt）→ checkIn",
+        loginStep3: "进入仪表盘 — 本机信任 24 小时",
+        agentNeedOwnWallet: "可选：连接持有钱包以立即验证本机。",
+        agentOwnerMismatch: "当前 Web3 钱包与该 Agent ID 不匹配。",
+        agentUnverifiedBanner: "尚未验证 — 请返回首页打开 Binance AI / checkIn。",
+        addressHidden: "验证前隐藏",
+        toastNeedOwnership: "请先验证 Agent ID。",
+        optionalOwnerWallet: "可选：连接持有钱包",
+        agentVerifyTitle: "通过 AI Agent 验证",
+        agentVerifyHint: "Prompt 不含 name.ai / 钱包地址。推荐打开 Binance AI（已自动复制 prompt）。checkIn 成功后进入仪表盘。本机信任 24 小时。",
+        agentVerifyWaiting: "正在等待链上 checkIn…",
+        agentVerifyOk: "已验证 — 正在打开仪表盘…",
+        agentVerifyHandleLabel: "准备验证 · 成功后本机信任 24 小时",
+        openBinanceAi: "打开 Binance AI",
+        agentVerifyIConfirmed: "我已确认",
+        agentVerifyTrustHint: "本机记住 24 小时 — 不必每次开标签都验证。",
+        toastBinanceAiOpened: "已复制 prompt — 粘贴到 Binance AI 并确认 checkIn。",
+        toastVerifyPolling: "正在再次检查链上…",
         earn: "Earn", defi: "DeFi", stocks: "股票", soonBadge: "Soon",
         stocksNote: "参考价格 · 暂不支持链上交易",
         toastComingSoon: "即将推出 — DeFi 标签页将在后续版本上线。",
-        toastEarnWeb3Soon: "链上 Earn（钱包签名）即将推出。请用 AI Agent 路径创建 Earn intent。",
         toastEarnNeedAgent: "请先用 Agent ID（.ai）打开，再用 Earn 创建 intent。",
+        toastEarnWeb3OnlyVenus: "Web3 Earn 目前支持 Venus（BNB/USDT）。其他协议请用 AI Agent。",
+        toastEarnOk: "Earn 成功",
+        toastEarnFail: "Earn 失败",
         toastStockSoon: "股票：演示行情 — 交易稍后上线。",
         earnTitle: "Earn",
-        earnHint: "存入 BNB Chain 上的链上协议 — AI Agent 先 simulate，你确认后再 execute。",
-        riskEarn: "⚠️ 风险：智能合约 / 脱锚 / APY 变动。不是 CEX Simple Earn。",
+        earnHint: "Venus / Lista / Pancake LP（BSC）。Web3：钱包签名。AI Agent：intent → simulate → confirm。",
+        riskEarn: "⚠️ 风险：智能合约 / 流动性 / APY 变动。不是 CEX Simple Earn。",
         earnProtocol: "协议",
         earnProduct: "产品",
         earnConfirm: "创建 Earn Intent",
+        earnConfirmWeb3: "Supply（钱包签名）",
+        earnDeposit: "Deposit",
+        earnWithdraw: "Withdraw",
+        earnClaim: "Claim",
+        earnConfirmWithdraw: "创建 Withdraw Intent",
+        earnConfirmClaim: "创建 Claim Intent",
+        agentTools: "AI Agent tools",
+        walletActions: "钱包",
+        workspaceTitle: "工作区",
+        wsTrade: "Trade",
+        wsCreate: "Create",
+        wsTools: "Tools",
+        wsAbout: "介绍",
+        wsCreateHint: "创建 Token / NFT → 生成 AI Agent prompt。",
+        approvals: "Approve",
+        approvalsSub: "代币授权",
+        bridge: "Bridge",
+        bridgeSub: "跨链",
+        cancelOrders: "Cancel",
+        cancelOrdersSub: "Limit / Stop",
+        approvalsTitle: "Approve / Revoke",
+        approvalsHint: "仅 AI Agent · 在 BSC 管理 BEP-20 allowance（swap/earn/bridge 前）。",
+        riskApprove: "⚠️ 错误 spender 可能导致资产风险。默认 Exact amount — 仅在理解 MaxUint256 风险时启用 Unlimited。",
+        riskApproveUnlimited: "⚠️ Unlimited = MaxUint256。Spender 可能用尽全部 allowance。仅用于你信任的官方合约。",
+        approveAction: "Approve",
+        revokeAction: "Revoke",
+        approveSpender: "Spender",
+        spenderPcs: "PancakeSwap Router V2",
+        spenderVenus: "Venus vUSDT",
+        spenderCustom: "自定义地址…",
+        spenderCustomPh: "0x… spender",
+        approveAmount: "Allowance",
+        approveUnlimited: "Unlimited",
+        approveExact: "Exact amount",
+        approveNote: "给 Agent 的备注",
+        approveNotePh: "例如：兑换前 Approve USDT 给 PCS…",
+        approvalsConfirm: "生成 Approve Prompt",
+        toastNeedSpender: "请输入有效 spender 地址。",
+        toastNeedApproveAmt: "请输入有效 allowance。",
+        bridgeTitle: "Bridge",
+        bridgeHint: "仅 AI Agent · 生成 bridge intent（simulate → confirm）。默认来源 BSC。",
+        riskBridge: "⚠️ Bridge 有最终确认 / 地址错误 / 诈骗风险。请只用可信桥。",
+        bridgeFrom: "From chain",
+        bridgeTo: "To chain",
+        bridgeToken: "Token",
+        bridgeDest: "Destination address",
+        bridgeDestPh: "0x…（默认 Agent 钱包）",
+        bridgeProvider: "Bridge provider",
+        bridgeSlippage: "Max slippage %",
+        bridgeNotePh: "例如：Bridge USDT BSC → ETH，优先低费用…",
+        bridgeConfirm: "生成 Bridge Prompt",
+        toastNeedBridgeAmt: "请输入有效 bridge 数量。",
+        toastSameChain: "From 与 To 必须不同。",
+        cancelTitle: "Cancel Limit / Stop",
+        cancelHint: "仅 AI Agent · 取消挂单 Limit / Stop Limit（perp）。",
+        riskCancel: "⚠️ 取消错误订单可能失去 TP/SL 保护。请先 simulate。",
+        cancelPending: "Agent 跟踪中的订单",
+        cancelSelected: "取消所选",
+        cancelManual: "手动输入",
+        cancelMarket: "Market",
+        cancelSide: "Side",
+        cancelOrderType: "Order type",
+        cancelPrice: "Price / trigger（可选）",
+        cancelNotePh: "例如：若未成交则取消 BTC Long Stop Limit…",
+        cancelConfirm: "生成 Cancel Prompt",
+        toastNeedCancelOrder: "请选择跟踪订单或切换到手动输入。",
+        noAgentOrders: "暂无 Agent Limit/Stop — 请先在 Perp 下单。",
         earnNeedAmount: "请输入有效的 Earn 数量。",
+        earnNeedWallet: "Earn 前请先连接 Web3 钱包。",
         earnSummary: "Earn（deposit）：向 {protocol}（{product}）存入 {amount} {asset}（BNB Smart Chain）。先 simulate，确认后再 execute。",
         gateDeployAlert: "尚未配置 AgentGate 地址。请部署合约并在 frontend/config.js 中填写。",
         gateCheckFail: "Check-in 失败",
@@ -529,16 +1108,45 @@ const I18N = {
         aiAdvisorDismiss: "仅查看，不应用",
         howtoWeb3Title: "使用指南（Web3）",
         howtoWeb3Steps: [
-            "<b>连接钱包</b> — BSC 上的 MetaMask / Binance Wallet。",
-            "<b>转账 / 收款 / Swap</b> — 在钱包直接签名。",
-            "<b>Perp / 预测</b> — 打开链上 Swap（钱包签名）。",
-            "<b>DeFi</b> — 即将推出。"
+            "<b>1. 连接钱包</b> — MetaMask / Binance Wallet；确认网络为 <em>BNB Smart Chain</em>。",
+            "<b>2. 查看余额</b> — Popular 代币列表；点 ⋮ 显示/隐藏或添加自定义代币。",
+            "<b>3. 转账 / 收款 / Swap</b> — 常规钱包操作；点 Confirm 会弹出钱包签名。",
+            "<b>4. Earn</b> — Venus / Lista / Pancake LP：直接签名 supply（Web3 无 Withdraw/Claim intent）。",
+            "<b>5. Perp</b> — Market 立即打开 Swap；Limit / Stop Limit 跟踪 Mark，触发后再打开 Swap（需保持页面打开）。",
+            "<b>6. 预测</b> — 按 Yes/No 打开链上 Swap（钱包签名）。",
+            "<b>7. 看不到 Launch / Approve / Bridge？</b> — 这些模式只在 <em>AI Agent</em> 标签（intent + prompt）。"
         ],
         dashDisclaimerWeb3: "Web3 路径：你用钱包直接签名交易。确认前请检查 BNB Smart Chain。不构成投资建议。",
-        pillGate: "Agent ID 门禁", pillIntent: "AI Intent", pillChain: "BNB Chain", pillSimulate: "先模拟",
-        loginStep1: "拥有 Agent ID (name.ai)", loginStep2: "进入 AgentGate 仪表盘", loginStep3: "向 AI Agent 发送意图",
+        pillGate: "Agent ID 门禁", pillIntent: "AI Intent", pillChain: "BNB Smart Chain", pillSimulate: "先模拟",
+        loginStep1: "输入你的 Agent ID (name.ai)", loginStep2: "打开 Binance AI（或复制 prompt）→ checkIn", loginStep3: "进入仪表盘 — 本机信任 24 小时",
         loginClaim: "还没有 Agent ID？<a href=\"https://www.binance.com/en/download\" target=\"_blank\" rel=\"noopener\">在 Binance App 领取</a>（钱包 → Agent ID 横幅）",
-        popular: "热门", bnbMainnet: "BNB Chain · 主网", agentNft: "Agent ID NFT", loading: "加载中...",
+        popular: "热门", bnbMainnet: "BNB Smart Chain · 主网", agentNft: "Agent ID NFT", loading: "加载中...",
+        networkChip: "网络：BNB Smart Chain",
+        toastNetworkBsc: "当前为 BNB Smart Chain（主网）。",
+        toastSortValue: "排序：USD 价值",
+        toastSortName: "排序：名称 A→Z",
+        toastSortBalance: "排序：余额",
+        manageTokensTitle: "管理代币",
+        manageTokensHint: "在仪表盘显示/隐藏代币 · 按名称或代号搜索（BNB Smart Chain）。",
+        manageTokenSearchPh: "输入代币名称或地址",
+        showAllTokens: "全部显示",
+        hideZeroTokens: "隐藏零余额",
+        tokensHiddenEmpty: "没有可见代币。打开 ⋮ 重新开启。",
+        done: "完成",
+        tokenVisible: "显示",
+        tokenHidden: "隐藏",
+        addCustomToken: "添加自定义代币",
+        customTokenWarn: "任何人都可以创建代币，包括伪造现有代币。添加前请在 BscScan 核对合约地址。",
+        networkLabel: "网络",
+        tokenContract: "代币合约地址",
+        tokenContractPh: "输入代币地址",
+        saveToken: "保存",
+        toastTokenSaved: "已添加自定义代币。",
+        toastBadTokenAddr: "代币地址无效。",
+        toastTokenExists: "该代币已在列表中。",
+        toastTokenLookup: "正在读取合约…",
+        toastTokenLookupFail: "无法在 BSC 读取该代币。",
+        lockedToken: "内置代币",
         recentIntents: "最近的 AI Agent 意图", clear: "清除", noIntents: "暂无意图 — 试试 Perp / Swap / Predict / Earn",
         history: "历史", back: "返回",
         dashDisclaimer: "AgentGate 不会自动签名。AI Agent 必须先模拟；你确认后才执行资产操作。不构成投资建议。",
@@ -565,14 +1173,71 @@ const I18N = {
         noMarket: "没有匹配的市场", noNft: "没有 Agent ID NFT", nftFail: "无法加载 NFT",
         loadingTx: "正在加载交易...", checking: "正在检查...",
         noAgentId: "未找到 Agent ID。", invalidAddr: "地址无效。请输入 name.ai",
-        agentOk: "Agent ID 有效 — 正在打开仪表盘...", noAgentOnAddr: "该地址没有 Agent ID。",
+        agentOk: "Agent ID 有效 — 正在打开 AI Agent 仪表盘...", noAgentOnAddr: "该 Agent ID / 钱包没有 Agent ID NFT。",
+        agentOkVerified: "已证明所有权 — 地址与余额已解锁。",
         walletNoAgent: "钱包没有 Agent ID。请在 Binance App 领取（钱包 → Agent ID），或用 <b>name.ai</b> 检查。",
         errPrefix: "错误：", gateRemind: "建议今天 Activate（check-in）以记录到链上",
         toastCopied: "已复制地址", toastCopiedPrompt: "已复制 AI Agent prompt",
         toastCopiedJson: "已复制 Intent JSON", toastClearedIntents: "已清除意图历史",
         toastCheckIn: "正在 check-in...", toastCheckInOk: "Check-in 成功",
         toastIntentLogged: "已在链上记录 intent", toastSwapOk: "兑换成功",
-        toastNoMark: "尚无 Mark 价格", toastMarketOnly: "演示：仅市价单 → AI Agent",
+        toastNoMark: "尚无 Mark 价格",
+        toastMarketOnly: "Web3 Perp 仅支持市价（打开 Swap）。Limit / Stop Limit 请用 AI Agent。",
+        toastNeedLimitPrice: "请输入有效的 Limit price。",
+        toastNeedStopPrice: "请输入有效的 Stop trigger 与 Stop limit price。",
+        toastLimitQueued: "已挂 Limit — 等待 Mark 触发后打开 Swap。",
+        toastStopQueued: "已挂 Stop Limit — 等待触发后打开 Swap。",
+        toastOrderCancelled: "已取消挂单。",
+        toastOrderTriggered: "条件已满足 — 打开 Swap 签名。",
+        perpHistoryEmpty: "暂无历史订单。",
+        perpOrdersEmpty: "暂无 Open Orders。Web3 Limit / Stop Limit 会显示在这里。",
+        cancelOrder: "取消",
+        armedLabel: "Armed",
+        waitingLabel: "Waiting",
+        limitPrice: "Limit price", stopTrigger: "Stop trigger", stopLimitPrice: "Stop limit price", useMark: "Mark",
+        launch: "Launch",
+        launchTitle: "Launchpad",
+        launchHint: "仅 AI Agent · 完整 launchpad 表单 → Launch 生成 prompt（simulate → confirm → 在 BSC 部署）。",
+        riskLaunch: "⚠️ 部署 token/NFT 需 gas，存在合约与流动性风险。Mint/ownable（若开启）属于你部署的合约 — AgentGate 不托管、不自动签名。Agent 必须先 simulate，再由你确认。",
+        launchTabToken: "Create Token",
+        launchTabNft: "Create NFT",
+        logoPh: "Logo",
+        uploadLogo: "上传 Logo",
+        logoUrlPh: "或粘贴 Logo URL（https://…）",
+        clearLogo: "清除",
+        tokenName: "代币名称",
+        tokenNamePh: "例如 AgentGate Coin",
+        tokenSymbol: "代号",
+        tokenSymbolPh: "AGT",
+        tokenDecimals: "Decimals",
+        tokenSupply: "总供应量",
+        tokenSupplyPh: "1000000000",
+        tokenDesc: "简介",
+        tokenDescPh: "简短说明、效用、社区…",
+        tokenWebsite: "Website",
+        tokenTwitter: "Twitter / X",
+        tokenTelegram: "Telegram",
+        tokenMintable: "Mintable",
+        tokenBurnable: "Burnable",
+        tokenOwnable: "Ownable",
+        nftImagePh: "NFT 图片",
+        uploadNft: "上传图片",
+        nftUrlPh: "或粘贴图片 / IPFS URL",
+        nftName: "NFT / 系列名称",
+        nftNamePh: "例如 AgentGate Pass",
+        nftSymbol: "Symbol",
+        nftSupply: "铸造数量",
+        nftDesc: "简介",
+        nftDescPh: "NFT 效用、Agent ID 权益…",
+        nftExternal: "外链（可选）",
+        launchConfirm: "Launch → 生成 Prompt",
+        launchConfirmToken: "Launch Token → Prompt",
+        launchConfirmNft: "Launch NFT → Prompt",
+        toastNeedTokenName: "请输入代币名称与代号。",
+        toastNeedTokenSupply: "请输入有效总供应量（> 0）。",
+        toastNeedNftName: "请输入 NFT / 系列名称。",
+        toastNeedNftImage: "请上传图片或粘贴 NFT 图片 URL。",
+        toastLogoTooBig: "Logo 过大 — 仅保存元数据；agent 将询问 URL/IPFS。",
         toastLeaderboard: "排行榜 — 即将推出", toastAnalyzing: "分析中...",
         toastAnalyzeFail: "分析失败 — 请重试", analyzeMarket: "分析市场",
         toastNoAdvice: "尚无有效建议", markErr: "数据错误", markFail: "加载失败",
@@ -599,7 +1264,7 @@ const I18N = {
         txSent: "交易已提交",
         txOk: "交易成功",
         txFail: "交易失败",
-        web3PerpNote: "Web3：Long/Short 将打开 PancakeSwap（钱包签名）。完整杠杆合约请用 AI Agent。",
+        web3PerpNote: "Web3：市价立即打开 Swap。Limit / Stop Limit 在浏览器跟踪 Mark → 触发后打开 Swap（钱包签名）。",
         web3PredNote: "Web3：Predict 将打开链上 Swap（钱包签名）。完整预测市场请用 AI Agent。",
         web3OpenSwap: "已打开 Swap — 请核对交易对与数量，然后在钱包确认。",
         sendOk: "发送成功",
@@ -615,6 +1280,12 @@ const I18N = {
         errRpc: "钱包/RPC 拒绝交易（常见原因：余额不足、gas、swap quote 失败）。请检查 BSC 上的 USDT + BNB gas。",
         perpAdvisor: "Perp Advisor", predictAdvisor: "Predict Advisor",
         askAiPh: "询问 AgentGate AI…",
+        pickPair: "选择交易对",
+        perpMarkets: "Markets", perpChart: "Chart", perpTrade: "Trade",
+        perpMarketsTitle: "永续合约",
+        perpSearchPh: "搜索交易对…",
+        perpColSym: "交易对 / 杠杆", perpColPrice: "价格 / 24h",
+        perpOpenLong: "开多", perpOpenShort: "开空",
         chipLongShort: "Long / Short", chipSafeLev: "Safe lev", chipTpSl: "TP / SL",
         chipYesNo: "Yes / No", chipHot: "Hot", chipSafeStake: "Safe stake",
         chipQLongShort: "这对应该 Long 还是 Short？",
@@ -730,6 +1401,9 @@ function updateUI() {
         if (val != null) el.placeholder = val;
     });
 
+    const aboutSub = document.getElementById("subtitle");
+    if (aboutSub && loginTab === "about") aboutSub.innerText = t("aboutSubtitle");
+
     const input = document.getElementById("agentInput");
     if (input) input.placeholder = t("placeholder");
     const connect = document.getElementById("connectWallet");
@@ -751,7 +1425,7 @@ function updateUI() {
     }
     const brandSub = document.getElementById("dashBrandSub");
     if (brandSub) brandSub.innerText = entryFlow === "web3" ? t("brandWeb3") : t("brandAgent");
-    applyModeChrome();
+    try { applyModeChrome(); } catch (_) {}
 
     const openBtn = document.getElementById("openPerp");
     if (openBtn && !openBtn.dataset.busy) {
@@ -769,6 +1443,12 @@ function updateUI() {
     if (perpNote) perpNote.innerHTML = t("perpAgentNote");
     const posEmpty = document.getElementById("perpPositionsEmpty");
     if (posEmpty) posEmpty.innerText = t("positionsEmpty");
+    const histEmpty = document.getElementById("perpHistoryEmpty");
+    if (histEmpty) histEmpty.innerText = t("perpHistoryEmpty");
+    // Chỉ re-render sau khi state Web3 orders đã init (tránh TDZ phá cả app.js)
+    if (window.__agWeb3PerpReady) {
+        try { renderWeb3PerpOrders(); } catch (_) {}
+    }
     const askPerp = document.getElementById("askAiPerp");
     if (askPerp) askPerp.innerText = t("askAi");
     const askPred = document.getElementById("askAiPredict");
@@ -834,28 +1514,69 @@ document.querySelectorAll("[data-set-theme]").forEach(btn => {
     btn.onclick = () => setTheme(btn.dataset.setTheme);
 });
 
+async function refreshAboutUniqueAgents() {
+    const els = document.querySelectorAll(".js-unique-agents");
+    if (!els.length) return;
+    const setAll = (v) => els.forEach(el => { el.textContent = v; });
+    try {
+        const gate = getAgentGateContract(getReadProvider());
+        if (!gate) { setAll("—"); return; }
+        const n = await gate.uniqueAgents();
+        setAll(n.toString());
+    } catch (_) {
+        setAll("—");
+    }
+}
+
 function setEntryFlow(flow) {
-    entryFlow = flow === "web3" ? "web3" : "agent";
-    try { localStorage.setItem("agentgate_flow", entryFlow); } catch (_) {}
+    const tab = flow === "about" ? "about" : (flow === "web3" ? "web3" : "agent");
+    loginTab = tab;
+    if (tab !== "about") {
+        entryFlow = tab;
+        try { localStorage.setItem("agentgate_flow", entryFlow); } catch (_) {}
+    }
     const web3Tab = document.getElementById("flowTabWeb3");
     const agentTab = document.getElementById("flowTabAgent");
+    const aboutTab = document.getElementById("flowTabAbout");
     const web3Panel = document.getElementById("flowWeb3Panel");
     const agentPanel = document.getElementById("flowAgentPanel");
-    const isWeb3 = entryFlow === "web3";
+    const aboutPanel = document.getElementById("flowAboutPanel");
+    const isWeb3 = tab === "web3";
+    const isAgent = tab === "agent";
+    const isAbout = tab === "about";
     if (web3Tab) {
         web3Tab.classList.toggle("active", isWeb3);
         web3Tab.setAttribute("aria-selected", isWeb3 ? "true" : "false");
     }
     if (agentTab) {
-        agentTab.classList.toggle("active", !isWeb3);
-        agentTab.setAttribute("aria-selected", !isWeb3 ? "true" : "false");
+        agentTab.classList.toggle("active", isAgent);
+        agentTab.setAttribute("aria-selected", isAgent ? "true" : "false");
+    }
+    if (aboutTab) {
+        aboutTab.classList.toggle("active", isAbout);
+        aboutTab.setAttribute("aria-selected", isAbout ? "true" : "false");
     }
     if (web3Panel) web3Panel.hidden = !isWeb3;
-    if (agentPanel) agentPanel.hidden = isWeb3;
+    if (agentPanel) agentPanel.hidden = !isAgent;
+    if (aboutPanel) aboutPanel.hidden = !isAbout;
+    const sub = document.getElementById("subtitle");
+    if (sub) sub.innerText = isAbout ? t("aboutSubtitle") : t("subtitle");
     const resultDiv = document.getElementById("result");
     if (resultDiv) { resultDiv.className = ""; resultDiv.innerHTML = ""; }
-    if (!isWeb3) document.getElementById("agentInput")?.focus();
-    else renderWalletChoices();
+    if (isAbout) {
+        refreshAboutUniqueAgents();
+    } else if (isWeb3) {
+        pendingAgentLogin = null;
+        walletConnectPurpose = "web3";
+        stopAgentVerifyUi();
+        const agChoices = document.getElementById("agentWalletChoices");
+        if (agChoices) { agChoices.innerHTML = ""; agChoices.hidden = true; }
+        renderWalletChoices("web3");
+    } else {
+        document.getElementById("agentInput")?.focus();
+        const wChoices = document.getElementById("walletChoices");
+        if (wChoices && !pendingAgentLogin) { wChoices.innerHTML = ""; wChoices.hidden = true; }
+    }
     try { applyModeChrome(); } catch (_) {}
 }
 
@@ -865,6 +1586,9 @@ function setEntryFlow(flow) {
     setEntryFlow(entryFlow);
     document.getElementById("flowTabWeb3")?.addEventListener("click", () => setEntryFlow("web3"));
     document.getElementById("flowTabAgent")?.addEventListener("click", () => setEntryFlow("agent"));
+    document.getElementById("flowTabAbout")?.addEventListener("click", () => setEntryFlow("about"));
+    document.getElementById("aboutGoAgent")?.addEventListener("click", () => setEntryFlow("agent"));
+    document.getElementById("aboutGoWeb3")?.addEventListener("click", () => setEntryFlow("web3"));
     const btn = document.getElementById("dashSettingsBtn");
     const panel = document.getElementById("dashSettingsPanel");
     if (!btn || !panel) return;
@@ -880,6 +1604,22 @@ function setEntryFlow(flow) {
             btn.setAttribute("aria-expanded", "false");
         }
     });
+})();
+
+// Soft resume: if this device has valid 24h trust and Agent flow is selected, reopen dashboard
+(async function tryResumeAgentSession() {
+    if (entryFlow !== "agent") return;
+    const trust = readAgentTrust();
+    if (!trust?.owner) return;
+    try {
+        const contract = new ethers.Contract(AGENT_ID_CONTRACT, AGENT_ID_ABI, getReadProvider());
+        const bal = await contract.balanceOf(trust.owner);
+        if (!bal.gt(0)) {
+            clearAgentSession();
+            return;
+        }
+        await completeAgentSessionLogin(trust.owner, trust.handle || shortAddr(trust.owner));
+    } catch (_) {}
 })();
 
 
@@ -927,14 +1667,23 @@ function updateTodayPnl(totalUsd) {
     const el = document.getElementById("todayPnl");
     if (!el || !Number.isFinite(totalUsd)) return;
 
+    // Baseline theo từng địa chỉ — tránh so số dư Agent với baseline ví Web3 (hoặc ngược lại)
+    const addr = String(currentDashboardAddress || userAddress || "").toLowerCase();
+    if (!addr || !ethers.utils.isAddress(addr)) {
+        setSensitiveText(el, `+ ${formatViNum(0)} USD(${formatViNum(0)}%)`);
+        el.classList.remove("up", "down");
+        el.classList.add("flat");
+        return;
+    }
+
     const day = new Date().toISOString().slice(0, 10);
-    const key = "agentgate_pnl_baseline";
+    const key = `agentgate_pnl_baseline_v2_${addr}`;
     let data = null;
     try { data = JSON.parse(localStorage.getItem(key) || "null"); } catch (e) {}
 
-    if (!data || data.day !== day || !Number.isFinite(data.usd)) {
-        data = { day, usd: totalUsd };
-        localStorage.setItem(key, JSON.stringify(data));
+    if (!data || data.day !== day || data.addr !== addr || !Number.isFinite(data.usd)) {
+        data = { day, addr, usd: totalUsd };
+        try { localStorage.setItem(key, JSON.stringify(data)); } catch (_) {}
     }
 
     const diff = totalUsd - data.usd;
@@ -1042,8 +1791,12 @@ function setWalletProvider(p) {
     injectedProvider = p || null;
 }
 
-function renderWalletChoices() {
-    const host = document.getElementById("walletChoices");
+function renderWalletChoices(purpose) {
+    if (purpose === "web3" || purpose === "agentProof") walletConnectPurpose = purpose;
+    const hostId = walletConnectPurpose === "agentProof" ? "agentWalletChoices" : "walletChoices";
+    const host = document.getElementById(hostId);
+    const other = document.getElementById(walletConnectPurpose === "agentProof" ? "walletChoices" : "agentWalletChoices");
+    if (other) { other.innerHTML = ""; other.hidden = true; }
     if (!host) return;
     window.dispatchEvent(new Event("eip6963:requestProvider"));
     const list = collectInjectedProviders();
@@ -1071,9 +1824,369 @@ function renderWalletChoices() {
     host.querySelectorAll("[data-wallet-idx]").forEach(btn => {
         btn.onclick = () => {
             const item = walletChoiceList[Number(btn.dataset.walletIdx)];
-            if (item?.provider) connectWeb3Wallet(item.provider);
+            if (!item?.provider) return;
+            if (walletConnectPurpose === "agentProof") connectWalletForAgentProof(item.provider);
+            else connectWeb3Wallet(item.provider);
         };
     });
+}
+
+function sameAddr(a, b) {
+    return !!(a && b && String(a).toLowerCase() === String(b).toLowerCase());
+}
+
+function normalizeAgentLoginInput(raw) {
+    let input = String(raw || "").trim();
+    if (!input) return "";
+    if (!ethers.utils.isAddress(input) && !input.includes(".") && /^[a-z0-9_-]+$/i.test(input)) {
+        input = input.toLowerCase() + ".ai";
+    }
+    return input;
+}
+
+async function linkWalletAccounts(eth) {
+    if (!eth || typeof eth.request !== "function") throw new Error(t("noWalletExt"));
+    setWalletProvider(eth);
+    await ensureBscNetwork(eth);
+    provider = new ethers.providers.Web3Provider(eth, "any");
+    await provider.send("eth_requestAccounts", []);
+    signer = provider.getSigner();
+    userAddress = await signer.getAddress();
+    bindWalletEvents(eth);
+    return userAddress;
+}
+
+/** Optional Web3 proof only — AI Agent path does not require this */
+async function connectWalletForAgentProof(preferOrProvider) {
+    const resultDiv = document.getElementById("result");
+    if (isFileProtocol()) {
+        if (resultDiv) {
+            resultDiv.className = "error";
+            resultDiv.innerText = t("fileProtocolWarn");
+        }
+        return;
+    }
+    let eth = null;
+    if (preferOrProvider && typeof preferOrProvider === "object" && typeof preferOrProvider.request === "function") {
+        eth = preferOrProvider;
+    }
+    if (!eth) {
+        await waitForWallet();
+        renderWalletChoices("agentProof");
+        const list = collectInjectedProviders();
+        if (list.length === 1) eth = list[0].provider;
+        else {
+            if (resultDiv) {
+                resultDiv.className = list.length ? "" : "error";
+                resultDiv.innerText = list.length ? t("agentNeedOwnWallet") : t("noWalletExt");
+            }
+            return;
+        }
+    }
+    try {
+        setLoading(true);
+        await linkWalletAccounts(eth);
+        // Homepage verify in progress — matching owner wallet completes this session
+        if (agentVerifyOwner && sameAddr(userAddress, agentVerifyOwner)) {
+            await completeAgentSessionLogin(agentVerifyOwner, agentVerifyHandle || shortAddr(userAddress));
+            return;
+        }
+        if (currentDashboardAddress && sameAddr(userAddress, currentDashboardAddress)) {
+            writeAgentSession(userAddress, currentAgentName || shortAddr(userAddress));
+            agentOwnershipVerified = true;
+            showToast(t("agentVerifyOk"), 2800);
+            return;
+        }
+        await finishAgentIdLogin();
+    } catch (err) {
+        console.error(err);
+        setWalletProvider(null);
+        if (resultDiv) {
+            resultDiv.className = "error";
+            resultDiv.innerText = err?.reason || err?.message || t("connectFail");
+        }
+    } finally {
+        setLoading(false);
+    }
+}
+
+function clearAgentVerifyPoll() {
+    if (agentVerifyPollTimer) {
+        clearInterval(agentVerifyPollTimer);
+        agentVerifyPollTimer = null;
+    }
+}
+
+function readAgentTrust() {
+    try {
+        const raw = localStorage.getItem(AGENT_TRUST_KEY);
+        if (!raw) return null;
+        const data = JSON.parse(raw);
+        if (!data?.owner || !data?.at) return null;
+        if (Date.now() - Number(data.at) > AGENT_TRUST_MS) {
+            localStorage.removeItem(AGENT_TRUST_KEY);
+            return null;
+        }
+        return data;
+    } catch (_) {
+        return null;
+    }
+}
+
+function writeAgentTrust(owner, handle) {
+    try {
+        localStorage.setItem(AGENT_TRUST_KEY, JSON.stringify({
+            owner: String(owner).toLowerCase(),
+            handle: String(handle || "").toLowerCase(),
+            at: Date.now(),
+            expiresAt: Date.now() + AGENT_TRUST_MS
+        }));
+    } catch (_) {}
+}
+
+/** @deprecated alias — trust 24h */
+function readAgentSession() { return readAgentTrust(); }
+function writeAgentSession(owner, handle) { writeAgentTrust(owner, handle); }
+
+function clearAgentSession() {
+    try { localStorage.removeItem(AGENT_TRUST_KEY); } catch (_) {}
+    try { sessionStorage.removeItem("agentgate_session_v1"); } catch (_) {}
+    clearAgentVerifyPoll();
+    agentVerifyStartedAt = 0;
+    agentVerifyOwner = "";
+    agentVerifyHandle = "";
+    agentVerifySessionId = "";
+    agentOwnershipVerified = false;
+}
+
+function showAgentVerifyPanel(show) {
+    const panel = document.getElementById("agentVerifyPanel");
+    const form = document.getElementById("agentLoginForm");
+    if (panel) panel.hidden = !show;
+    if (form) form.hidden = !!show;
+}
+
+function stopAgentVerifyUi() {
+    clearAgentVerifyPoll();
+    showAgentVerifyPanel(false);
+    const st = document.getElementById("agentVerifyStatus");
+    if (st) st.innerText = t("agentVerifyWaiting");
+}
+
+function requireAgentOwnership() {
+    if (isWeb3Mode || agentOwnershipVerified) return true;
+    showToast(t("toastNeedOwnership"), 4200);
+    return false;
+}
+
+/** Banner "Chưa xác minh" chỉ hiện khi Agent path chưa ownership-verified. */
+function syncAgentOwnershipUi() {
+    const unverified = !isWeb3Mode && !agentOwnershipVerified;
+    const dash = document.getElementById("dashboard");
+    if (dash) dash.classList.toggle("agent-unverified", unverified);
+    const banner = document.getElementById("agentOwnershipBanner");
+    if (banner) banner.hidden = !unverified;
+}
+
+function buildSessionCheckInPrompt(_owner, _handle) {
+    // Privacy: không đưa name.ai / địa chỉ ví vào prompt.
+    const gate = getAgentGateAddress();
+    agentVerifySessionId = `ag-sess-${Date.now().toString(36)}`;
+    const sessionId = agentVerifySessionId;
+    const lines = [
+        "AgentGate device verify on BNB Smart Chain (NO funds moved).",
+        `Locale: ${currentLang || "en"}. ${promptLocaleHint()}`,
+        "",
+        "Do this with MY already-bound Agent wallet only:",
+        gate
+            ? `1) Call checkIn() on AgentGate ${gate}`
+            : "1) AgentGate address missing — ask me to configure config.js, then checkIn().",
+        "2) Simulate first; wait for my explicit confirm before signing.",
+        "3) Return tx hash only.",
+        `4) Echo challenge id: ${sessionId}`,
+        "",
+        "Never ask for addresses, name.ai, seeds, keys, or pairing codes.",
+        "Never look up third-party Agent IDs.",
+        "",
+        `INTENT: ${JSON.stringify({
+            protocol: "AgentGate",
+            type: "gate.checkIn",
+            chainId: 56,
+            params: { method: "checkIn()", contract: gate || null, sessionId, purpose: "device_trust_24h" },
+            policy: { simulateFirst: true, confirmBeforeSign: true, neverAskUserForAddress: true }
+        })}`
+    ];
+    return lines.join("\n");
+}
+
+function copyAgentVerifyPromptText() {
+    const ta = document.getElementById("agentVerifyPrompt");
+    const text = ta?.value || "";
+    if (!text) return Promise.reject(new Error("empty"));
+    return navigator.clipboard.writeText(text);
+}
+
+function openBinanceAiVerify() {
+    copyAgentVerifyPromptText()
+        .then(() => showToast(t("toastBinanceAiOpened"), 4200))
+        .catch(() => showToast(t("toastBinanceAiOpened"), 4200));
+    try {
+        window.open(BINANCE_AI_URL, "_blank", "noopener,noreferrer");
+    } catch (_) {}
+}
+
+async function completeAgentSessionLogin(owner, handle) {
+    clearAgentVerifyPoll();
+    writeAgentSession(owner, handle);
+    agentOwnershipVerified = true;
+    currentAgentAddress = owner;
+    currentAgentName = handle;
+    currentDashboardAddress = owner;
+    isWeb3Mode = false;
+    entryFlow = "agent";
+    showAgentVerifyPanel(false);
+    const resultDiv = document.getElementById("result");
+    if (resultDiv) {
+        resultDiv.className = "ok";
+        resultDiv.innerText = t("agentVerifyOk");
+    }
+    showToast(t("agentVerifyOk"), 2800);
+    await enterDashboard(owner, handle, true);
+    applyModeChrome();
+}
+
+async function pollAgentSessionVerify() {
+    const owner = agentVerifyOwner;
+    const handle = agentVerifyHandle;
+    const started = agentVerifyStartedAt;
+    if (!owner || !started) return;
+    const statusEl = document.getElementById("agentVerifyStatus");
+    try {
+        // Optional Web3 match for this session
+        if (userAddress && getWalletProvider() && sameAddr(userAddress, owner)) {
+            await completeAgentSessionLogin(owner, handle);
+            return;
+        }
+        const gateAddr = getAgentGateAddress();
+        if (!gateAddr) {
+            if (statusEl) statusEl.innerText = t("gateNoDeploy");
+            return;
+        }
+        const gate = getAgentGateContract(getReadProvider());
+        const last = await gate.lastCheckIn(owner);
+        const lastSec = last && last.gt ? last.toNumber() : 0;
+        // Fresh checkIn after this verify attempt (allow 90s clock skew)
+        if (lastSec >= started - 90) {
+            await completeAgentSessionLogin(owner, handle);
+            return;
+        }
+        if (statusEl) statusEl.innerText = t("agentVerifyWaiting");
+    } catch (_) {
+        if (statusEl) statusEl.innerText = t("gateReadFail");
+    }
+}
+
+function startAgentSessionVerify(owner, handle) {
+    agentVerifyOwner = owner;
+    agentVerifyHandle = handle;
+    agentVerifyStartedAt = Math.floor(Date.now() / 1000);
+    currentAgentAddress = owner;
+    currentAgentName = handle;
+    const prompt = buildSessionCheckInPrompt(owner, handle);
+    const ta = document.getElementById("agentVerifyPrompt");
+    if (ta) ta.value = prompt;
+    const handleEl = document.getElementById("agentVerifyHandle");
+    if (handleEl) handleEl.innerText = t("agentVerifyHandleLabel");
+    const statusEl = document.getElementById("agentVerifyStatus");
+    if (statusEl) statusEl.innerText = `${t("agentVerifyWaiting")} · ${t("agentVerifyTrustHint")}`;
+    showAgentVerifyPanel(true);
+    copyAgentVerifyPromptText().then(() => showToast(t("toastCopiedPrompt"))).catch(() => {});
+    clearAgentVerifyPoll();
+    agentVerifyPollTimer = setInterval(() => { pollAgentSessionVerify(); }, 3500);
+    pollAgentSessionVerify();
+}
+
+/**
+ * AI Agent login — stay on homepage with verify prompt until fresh checkIn (session-scoped).
+ */
+async function finishAgentIdLogin() {
+    const resultDiv = document.getElementById("result");
+    let input = normalizeAgentLoginInput(pendingAgentLogin || document.getElementById("agentInput")?.value);
+    if (input && document.getElementById("agentInput")) {
+        document.getElementById("agentInput").value = input;
+    }
+    setEntryFlow("agent");
+    isWeb3Mode = false;
+    try { localStorage.setItem("agentgate_flow", "agent"); } catch (_) {}
+
+    if (!input) {
+        if (resultDiv) { resultDiv.className = "error"; resultDiv.innerText = t("invalidAddr"); }
+        return;
+    }
+
+    if (resultDiv) {
+        resultDiv.className = "";
+        resultDiv.innerText = t("checking");
+    }
+
+    try {
+        const readProvider = getReadProvider();
+        const contract = new ethers.Contract(AGENT_ID_CONTRACT, AGENT_ID_ABI, readProvider);
+        let ownerAddr = null;
+        let displayName = input;
+
+        if (input.toLowerCase().endsWith(".ai")) {
+            const handle = input.toLowerCase().replace(/\.ai$/i, "");
+            try {
+                ownerAddr = await contract.ownerOfHandle(handle);
+            } catch (_) {
+                if (resultDiv) { resultDiv.className = "error"; resultDiv.innerText = t("noAgentId"); }
+                return;
+            }
+            if (!ownerAddr || ownerAddr === ethers.constants.AddressZero) {
+                if (resultDiv) { resultDiv.className = "error"; resultDiv.innerText = t("noAgentId"); }
+                return;
+            }
+            displayName = input.toLowerCase();
+        } else if (ethers.utils.isAddress(input)) {
+            ownerAddr = ethers.utils.getAddress(input);
+            displayName = shortAddr(ownerAddr);
+        } else {
+            if (resultDiv) { resultDiv.className = "error"; resultDiv.innerText = t("invalidAddr"); }
+            return;
+        }
+
+        const balance = await contract.balanceOf(ownerAddr);
+        if (!balance.gt(0)) {
+            if (resultDiv) { resultDiv.className = "error"; resultDiv.innerText = t("noAgentOnAddr"); }
+            return;
+        }
+
+        pendingAgentLogin = null;
+        if (resultDiv) { resultDiv.className = ""; resultDiv.innerText = ""; }
+
+        // Device trust 24h for this Agent owner → skip prompt
+        const trust = readAgentTrust();
+        if (trust && sameAddr(trust.owner, ownerAddr)) {
+            await completeAgentSessionLogin(ownerAddr, displayName);
+            return;
+        }
+
+        // Optional: Web3 owner wallet proves this session without prompt
+        if (userAddress && getWalletProvider() && sameAddr(userAddress, ownerAddr)) {
+            await completeAgentSessionLogin(ownerAddr, displayName);
+            return;
+        }
+
+        // Homepage verify prompt + poll fresh checkIn
+        startAgentSessionVerify(ownerAddr, displayName);
+    } catch (err) {
+        console.error(err);
+        if (resultDiv) {
+            resultDiv.className = "error";
+            resultDiv.innerText = t("errPrefix") + (err.message || String(err));
+        }
+    }
 }
 
 async function waitForWallet(ms = 800) {
@@ -1163,13 +2276,75 @@ function priceElId(tokenId) {
     return tokenId.toLowerCase() + "Price";
 }
 
+const HIDDEN_TOKENS_KEY = "agentgate_hidden_tokens_v1";
+const CUSTOM_TOKENS_KEY = "agentgate_custom_tokens_v1";
+let hiddenTokenIds = new Set();
+let customDashTokens = [];
+let manageTokenQuery = "";
+let pendingCustomToken = null;
+
+function loadHiddenTokens() {
+    try {
+        const raw = JSON.parse(localStorage.getItem(HIDDEN_TOKENS_KEY) || "[]");
+        hiddenTokenIds = new Set(Array.isArray(raw) ? raw.map(String) : []);
+    } catch (_) {
+        hiddenTokenIds = new Set();
+    }
+}
+
+function saveHiddenTokens() {
+    localStorage.setItem(HIDDEN_TOKENS_KEY, JSON.stringify([...hiddenTokenIds]));
+}
+
+function loadCustomTokens() {
+    try {
+        const raw = JSON.parse(localStorage.getItem(CUSTOM_TOKENS_KEY) || "[]");
+        customDashTokens = Array.isArray(raw) ? raw.filter(t => t && t.id && t.address) : [];
+    } catch (_) {
+        customDashTokens = [];
+    }
+}
+
+function saveCustomTokens() {
+    localStorage.setItem(CUSTOM_TOKENS_KEY, JSON.stringify(customDashTokens));
+}
+
+function getAllDashTokens() {
+    loadCustomTokens();
+    return [...DASH_TOKENS, ...customDashTokens];
+}
+
+function isTokenVisible(id) {
+    return !hiddenTokenIds.has(id);
+}
+
+function setTokenVisible(id, visible) {
+    if (id === "BNB") return; // native luôn hiện như MetaMask
+    if (visible) hiddenTokenIds.delete(id);
+    else hiddenTokenIds.add(id);
+    saveHiddenTokens();
+}
+
+function visibleDashTokens() {
+    return getAllDashTokens().filter(t => isTokenVisible(t.id));
+}
+
+function tokenIconFallback(symbol) {
+    const s = String(symbol || "token").toLowerCase();
+    return `https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/32/color/${s}.png`;
+}
+
 function renderTokenList() {
     const list = document.getElementById("tokenList");
+    const empty = document.getElementById("tokenListEmpty");
     if (!list) return;
-    list.innerHTML = DASH_TOKENS.map(t => `
+    loadHiddenTokens();
+    const tokens = visibleDashTokens();
+    if (empty) empty.hidden = tokens.length > 0;
+    list.innerHTML = tokens.map(t => `
         <div class="token-row" data-token="${t.id}">
             <div class="token-left">
-                <img src="${t.icon}" width="36" height="36" alt="${t.symbol}" onerror="this.src='https://cdn.jsdelivr.net/gh/spothq/cryptocurrency-icons@master/32/color/${t.symbol.toLowerCase()}.png'">
+                <img src="${t.icon || tokenIconFallback(t.symbol)}" width="36" height="36" alt="${t.symbol}" onerror="this.src='${tokenIconFallback(t.symbol)}'">
                 <div>
                     <div class="token-name">${t.symbol}</div>
                     <div id="${priceElId(t.id)}" class="token-meta">$0.00</div>
@@ -1181,6 +2356,176 @@ function renderTokenList() {
             </div>
         </div>`).join("");
 }
+
+function tokenBalanceHint(id) {
+    const el = document.getElementById(amountElId(id));
+    if (!el) return 0;
+    const raw = el.dataset.raw || el.innerText || "0";
+    return parseFloat(String(raw).replace(/[^0-9.-]/g, "")) || 0;
+}
+
+function setManageView(view) {
+    const listView = document.getElementById("manageListView");
+    const addView = document.getElementById("manageAddView");
+    if (listView) listView.hidden = view !== "list";
+    if (addView) addView.hidden = view !== "add";
+}
+
+function renderManageTokenList() {
+    const box = document.getElementById("manageTokenList");
+    if (!box) return;
+    loadHiddenTokens();
+    const q = (manageTokenQuery || "").trim().toLowerCase();
+    const rows = getAllDashTokens().filter(t => {
+        if (!q) return true;
+        return t.symbol.toLowerCase().includes(q)
+            || t.name.toLowerCase().includes(q)
+            || t.id.toLowerCase().includes(q)
+            || (t.address || "").toLowerCase().includes(q);
+    });
+    if (!rows.length) {
+        box.innerHTML = `<p class="history-empty">${t("manageTokenSearchPh")}</p>`;
+        return;
+    }
+    box.innerHTML = rows.map(t => {
+        const on = isTokenVisible(t.id);
+        const bal = tokenBalanceHint(t.id);
+        const locked = t.id === "BNB";
+        const sub = bal > 0
+            ? `${bal.toFixed(4)} ${t.symbol}`
+            : (t.custom ? shortAddr(t.address) : "BNB Chain");
+        return `<div class="manage-token-row mm-row" data-token="${t.id}">
+            <div class="manage-token-left">
+                <span class="mm-token-ico">
+                    <img src="${t.icon || tokenIconFallback(t.symbol)}" width="36" height="36" alt="" onerror="this.src='${tokenIconFallback(t.symbol)}'">
+                    <img class="mm-chain-badge" src="https://cryptologos.cc/logos/bnb-bnb-logo.png" width="14" height="14" alt="">
+                </span>
+                <div>
+                    <strong>${t.symbol}</strong>
+                    <span>${sub}</span>
+                </div>
+            </div>
+            <button type="button" class="mm-switch ${on ? "on" : ""} ${locked ? "locked" : ""}" data-token-toggle="${t.id}" role="switch" aria-checked="${on}" ${locked ? "disabled" : ""} aria-label="${t.symbol}"></button>
+        </div>`;
+    }).join("");
+    box.querySelectorAll("[data-token-toggle]").forEach(btn => {
+        btn.onclick = () => {
+            if (btn.disabled) return;
+            const id = btn.dataset.tokenToggle;
+            const next = !isTokenVisible(id);
+            setTokenVisible(id, next);
+            renderManageTokenList();
+            renderTokenList();
+            refreshPortfolio().catch(() => {});
+        };
+    });
+}
+
+function shortAddr(addr) {
+    const a = String(addr || "");
+    if (a.length < 12) return a;
+    return `${a.slice(0, 6)}…${a.slice(-4)}`;
+}
+
+function openManageTokensModal() {
+    manageTokenQuery = "";
+    pendingCustomToken = null;
+    const search = document.getElementById("manageTokenSearch");
+    if (search) search.value = "";
+    resetCustomTokenForm();
+    setManageView("list");
+    renderManageTokenList();
+    document.getElementById("manageTokensModal").style.display = "flex";
+    setTimeout(() => search?.focus(), 50);
+}
+
+function resetCustomTokenForm() {
+    pendingCustomToken = null;
+    const addr = document.getElementById("customTokenAddress");
+    if (addr) addr.value = "";
+    const preview = document.getElementById("customTokenPreview");
+    if (preview) preview.hidden = true;
+    const status = document.getElementById("customTokenStatus");
+    if (status) status.innerText = "";
+    const save = document.getElementById("saveCustomToken");
+    if (save) save.disabled = true;
+    ["customTokenSymbol", "customTokenDecimals", "customTokenName"].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerText = "—";
+    });
+}
+
+async function lookupCustomToken(address) {
+    const status = document.getElementById("customTokenStatus");
+    const save = document.getElementById("saveCustomToken");
+    const preview = document.getElementById("customTokenPreview");
+    pendingCustomToken = null;
+    if (save) save.disabled = true;
+    if (!ethers.utils.isAddress(address)) {
+        if (status) status.innerText = t("toastBadTokenAddr");
+        if (preview) preview.hidden = true;
+        return null;
+    }
+    const checksum = ethers.utils.getAddress(address);
+    const exists = getAllDashTokens().some(t => (t.address || "").toLowerCase() === checksum.toLowerCase());
+    if (exists) {
+        if (status) status.innerText = t("toastTokenExists");
+        if (preview) preview.hidden = true;
+        return null;
+    }
+    if (status) status.innerText = t("toastTokenLookup");
+    try {
+        const c = new ethers.Contract(checksum, ERC20_MIN_ABI, getReadProvider());
+        const [symbol, name, decimals] = await Promise.all([
+            c.symbol().catch(() => "TOKEN"),
+            c.name().catch(() => "Custom Token"),
+            c.decimals().catch(() => 18)
+        ]);
+        const token = {
+            id: `CUSTOM_${checksum.slice(2, 8).toUpperCase()}`,
+            symbol: String(symbol || "TOKEN").slice(0, 12),
+            name: String(name || "Custom Token").slice(0, 48),
+            decimals: Number(decimals) || 18,
+            address: checksum,
+            native: false,
+            custom: true,
+            icon: `https://ui-avatars.com/api/?name=${encodeURIComponent(String(symbol || "T").slice(0, 2))}&background=1e2329&color=F0B90B&bold=true&size=64`
+        };
+        pendingCustomToken = token;
+        document.getElementById("customTokenSymbol").innerText = token.symbol;
+        document.getElementById("customTokenDecimals").innerText = String(token.decimals);
+        document.getElementById("customTokenName").innerText = token.name;
+        if (preview) preview.hidden = false;
+        if (status) status.innerText = "";
+        if (save) save.disabled = false;
+        return token;
+    } catch (_) {
+        if (status) status.innerText = t("toastTokenLookupFail");
+        if (preview) preview.hidden = true;
+        return null;
+    }
+}
+
+function savePendingCustomToken() {
+    if (!pendingCustomToken) return;
+    loadCustomTokens();
+    if (customDashTokens.some(t => t.address.toLowerCase() === pendingCustomToken.address.toLowerCase())) {
+        showToast(t("toastTokenExists"));
+        return;
+    }
+    customDashTokens.push(pendingCustomToken);
+    saveCustomTokens();
+    setTokenVisible(pendingCustomToken.id, true);
+    showToast(t("toastTokenSaved"));
+    resetCustomTokenForm();
+    setManageView("list");
+    renderManageTokenList();
+    renderTokenList();
+    refreshPortfolio().catch(() => {});
+}
+
+loadHiddenTokens();
+loadCustomTokens();
 
 async function updateNetworkDot() {
     const el = document.getElementById("dashNetworkStatus");
@@ -1208,7 +2553,7 @@ async function refreshPortfolio(address = currentDashboardAddress) {
     let total = 0;
     currentBalance = await readProvider.getBalance(address);
 
-    for (const t of DASH_TOKENS) {
+    for (const t of getAllDashTokens()) {
         let amount = 0;
         try {
             if (t.native) {
@@ -1220,7 +2565,7 @@ async function refreshPortfolio(address = currentDashboardAddress) {
             }
         } catch (_) { amount = 0; }
 
-        const price = t.stable ? 1 : (priceCache[t.id] || 0);
+        const price = t.stable ? 1 : (priceCache[t.id] || priceCache[t.symbol] || 0);
         const usd = amount * price;
         total += usd;
 
@@ -1229,7 +2574,7 @@ async function refreshPortfolio(address = currentDashboardAddress) {
         const priceEl = document.getElementById(priceElId(t.id));
         if (amountEl) setSensitiveText(amountEl, amount.toFixed(4));
         if (usdEl) setSensitiveText(usdEl, `$${usd.toFixed(2)}`);
-        if (priceEl) priceEl.innerText = `$${price.toFixed(price >= 100 ? 2 : 4)}`;
+        if (priceEl) priceEl.innerText = price > 0 ? `$${price.toFixed(price >= 100 ? 2 : 4)}` : (t.custom ? shortAddr(t.address) : "$0.00");
     }
 
     setSensitiveText("totalUsd", `$${total.toFixed(2)}`);
@@ -1237,24 +2582,54 @@ async function refreshPortfolio(address = currentDashboardAddress) {
     applyBalanceVisibility();
     await updateNetworkDot();
 
-    // Sắp xếp token theo giá trị USD giảm dần
+    sortTokenListRows();
+}
+
+let tokenSortMode = localStorage.getItem("agentgate_token_sort") || "value";
+
+function sortTokenListRows() {
     const list = document.getElementById("tokenList");
-    if (list) {
-        const rows = [...list.querySelectorAll(".token-row")];
-        rows.sort((a, b) => {
-            const ua = parseFloat((document.getElementById(usdElId(a.dataset.token))?.dataset.raw || "0").replace(/[^0-9.-]/g, "")) || 0;
-            const ub = parseFloat((document.getElementById(usdElId(b.dataset.token))?.dataset.raw || "0").replace(/[^0-9.-]/g, "")) || 0;
-            return ub - ua;
-        });
-        rows.forEach(r => list.appendChild(r));
-    }
+    if (!list) return;
+    const rows = [...list.querySelectorAll(".token-row")];
+    rows.sort((a, b) => {
+        const idA = a.dataset.token || "";
+        const idB = b.dataset.token || "";
+        if (tokenSortMode === "name") return idA.localeCompare(idB);
+        if (tokenSortMode === "balance") {
+            const ba = parseFloat((document.getElementById(amountElId(idA))?.dataset.raw || "0").replace(/[^0-9.-]/g, "")) || 0;
+            const bb = parseFloat((document.getElementById(amountElId(idB))?.dataset.raw || "0").replace(/[^0-9.-]/g, "")) || 0;
+            return bb - ba;
+        }
+        const ua = parseFloat((document.getElementById(usdElId(idA))?.dataset.raw || "0").replace(/[^0-9.-]/g, "")) || 0;
+        const ub = parseFloat((document.getElementById(usdElId(idB))?.dataset.raw || "0").replace(/[^0-9.-]/g, "")) || 0;
+        return ub - ua;
+    });
+    rows.forEach(r => list.appendChild(r));
+    const sortBtn = document.getElementById("sortTokensBtn");
+    if (sortBtn) sortBtn.classList.toggle("active", tokenSortMode !== "value");
+}
+
+function cycleTokenSort() {
+    tokenSortMode = tokenSortMode === "value" ? "name" : tokenSortMode === "name" ? "balance" : "value";
+    localStorage.setItem("agentgate_token_sort", tokenSortMode);
+    sortTokenListRows();
+    showToast(
+        tokenSortMode === "name" ? t("toastSortName")
+            : tokenSortMode === "balance" ? t("toastSortBalance")
+            : t("toastSortValue")
+    );
 }
 
 function startPortfolioAutoRefresh() {
     if (portfolioRefreshTimer) clearInterval(portfolioRefreshTimer);
     portfolioRefreshTimer = setInterval(() => {
         const dash = document.getElementById("dashboard");
-        if (dash && dash.style.display !== "none") refreshPortfolio();
+        if (!dash || dash.style.display === "none") return;
+        if (!isWeb3Mode && !agentOwnershipVerified) {
+            refreshGateStatus(currentDashboardAddress);
+            return;
+        }
+        refreshPortfolio();
     }, 20000);
 }
 
@@ -1273,6 +2648,8 @@ document.getElementById("refreshPortfolioBtn").onclick = async () => {
 async function connectWeb3Wallet(preferOrProvider) {
     const resultDiv = document.getElementById("result");
     const statusEl = document.getElementById("walletStatus");
+    walletConnectPurpose = "web3";
+    pendingAgentLogin = null;
     setEntryFlow("web3");
 
     if (isFileProtocol()) {
@@ -1353,8 +2730,10 @@ async function connectWeb3Wallet(preferOrProvider) {
 document.getElementById("connectWallet").onclick = () => {
     // Luôn hiện danh sách ví trước — tránh auto-connect làm UI “đơ” chờ popup
     setLoading(false);
+    walletConnectPurpose = "web3";
+    pendingAgentLogin = null;
     window.dispatchEvent(new Event("eip6963:requestProvider"));
-    renderWalletChoices();
+    renderWalletChoices("web3");
     const list = collectInjectedProviders();
     const resultDiv = document.getElementById("result");
     if (!list.length) {
@@ -1395,10 +2774,14 @@ async function disconnectWallet() {
     signer = null;
     userAddress = "";
     isWeb3Mode = false;
+    clearAgentSession();
+    pendingAgentLogin = null;
     currentDashboardAddress = "";
     currentAgentAddress = "";
     currentAgentName = "";
     currentBalance = ethers.BigNumber.from(0);
+    document.getElementById("dashboard")?.classList.remove("agent-unverified");
+    stopAgentVerifyUi();
 
     document.getElementById("dashboard").style.display = "none";
     const login = document.getElementById("loginSection");
@@ -1456,61 +2839,17 @@ setTimeout(() => {
     if (entryFlow === "web3") renderWalletChoices();
 }, 400);
 
-// Phần 2: Check Agent ID (luồng AI Agent)
+// Phần 2: Check Agent ID — bắt buộc chứng minh ownership (không tra ví người khác)
 document.getElementById("checkBtn").onclick = async () => {
-    let input = document.getElementById("agentInput").value.trim();
-    const resultDiv = document.getElementById("result");
+    const input = normalizeAgentLoginInput(document.getElementById("agentInput")?.value);
     if (!input) return;
-
-    // Cho phép gõ "myname" → tự thêm .ai
-    if (!ethers.utils.isAddress(input) && !input.includes(".") && /^[a-z0-9_-]+$/i.test(input)) {
-        input = input.toLowerCase() + ".ai";
-        document.getElementById("agentInput").value = input;
-    }
-
-    setEntryFlow("agent");
-    resultDiv.className = "";
-    resultDiv.innerText = t("checking");
-    isWeb3Mode = false;
-    entryFlow = "agent";
-    try { localStorage.setItem("agentgate_flow", "agent"); } catch (_) {}
-
+    document.getElementById("agentInput").value = input;
+    pendingAgentLogin = input;
+    setLoading(true);
     try {
-        const readProvider = getReadProvider();
-        const contract = new ethers.Contract(AGENT_ID_CONTRACT, AGENT_ID_ABI, readProvider);
-
-        let address = input;
-        let displayName = input;
-
-        if (input.toLowerCase().endsWith(".ai")) {
-            const handle = input.toLowerCase().replace(/\.ai$/i, "");
-            address = await contract.ownerOfHandle(handle);
-            if (!address || address === ethers.constants.AddressZero) {
-                resultDiv.className = "error";
-                resultDiv.innerText = t("noAgentId");
-                return;
-            }
-            displayName = input.toLowerCase();
-        } else if (!ethers.utils.isAddress(input)) {
-            resultDiv.className = "error";
-            resultDiv.innerText = t("invalidAddr");
-            return;
-        }
-
-        const balance = await contract.balanceOf(address);
-        if (balance.gt(0)) {
-            currentAgentAddress = address;
-            resultDiv.className = "ok";
-            resultDiv.innerText = t("agentOk");
-            await enterDashboard(address, displayName, true);
-        } else {
-            resultDiv.className = "error";
-            resultDiv.innerText = t("noAgentOnAddr");
-        }
-    } catch (err) {
-        console.error(err);
-        resultDiv.className = "error";
-        resultDiv.innerText = t("errPrefix") + err.message;
+        await finishAgentIdLogin();
+    } finally {
+        setLoading(false);
     }
 };
 
@@ -1550,11 +2889,22 @@ async function enterDashboard(address, name, hasAgent) {
     if (login) login.style.display = "none";
     document.getElementById("dashboard").style.display = "block";
     placeSettingsHost("dash");
-    applyModeChrome();
 
     currentDashboardAddress = address;
-    document.getElementById("agentAddress").innerText = shortAddr(address);
-    document.getElementById("agentAddress").dataset.full = address;
+    // Web3 path always "owns" the connected session; Agent path uses agentOwnershipVerified
+    if (isWeb3Mode) agentOwnershipVerified = true;
+    applyModeChrome();
+
+    const addrEl = document.getElementById("agentAddress");
+    if (addrEl) {
+        if (agentOwnershipVerified) {
+            addrEl.innerText = shortAddr(address);
+            addrEl.dataset.full = address;
+        } else {
+            addrEl.innerText = t("addressHidden");
+            addrEl.dataset.full = "";
+        }
+    }
     const disc = document.getElementById("disconnectBtn");
     if (disc) {
         disc.hidden = false;
@@ -1579,18 +2929,25 @@ async function enterDashboard(address, name, hasAgent) {
     } else if (verified) {
         display = rawName && !ethers.utils.isAddress(rawName) ? rawName : "Agent ID";
     } else {
-        display = shortAddr(address);
+        display = agentOwnershipVerified ? shortAddr(address) : t("addressHidden");
     }
 
     currentAgentName = display;
-    updateDashAgentHeader(display, verified);
+    updateDashAgentHeader(display, verified && (isWeb3Mode || agentOwnershipVerified));
 
     const scan = document.getElementById("bscscanLink");
-    if (scan) scan.href = `https://bscscan.com/address/${address}`;
+    if (scan) {
+        if (agentOwnershipVerified) scan.href = `https://bscscan.com/address/${address}`;
+        else scan.removeAttribute("href");
+    }
 
     renderTokenList();
     applyBalanceVisibility();
-    await refreshPortfolio(address);
+    if (agentOwnershipVerified || isWeb3Mode) await refreshPortfolio(address);
+    else {
+        const total = document.getElementById("totalUsd");
+        if (total) setSensitiveText(total, "$0.00");
+    }
     startPortfolioAutoRefresh();
     await refreshGateStatus(address);
     renderIntentHistory();
@@ -1616,8 +2973,9 @@ async function enterDashboard(address, name, hasAgent) {
 
 // Receive
 document.getElementById("receiveBtn").onclick = () => {
+    if (!requireAgentOwnership()) return;
     const el = document.getElementById("agentAddress");
-    const addr = (el.dataset.full || el.innerText || "").trim();
+    const addr = (el.dataset.full || currentDashboardAddress || "").trim();
     document.getElementById("receiveAddress").innerText = addr;
     const qr = document.getElementById("receiveQr");
     if (qr && addr) {
@@ -1651,8 +3009,9 @@ function syncSendConfirmState() {
 }
 
 document.getElementById("sendBtn").onclick = () => {
+    if (!requireAgentOwnership()) return;
     const addrEl = document.getElementById("agentAddress");
-    const full = addrEl.dataset.full || addrEl.innerText || "";
+    const full = (addrEl.dataset.full || currentDashboardAddress || "").trim();
     const fromEl = document.getElementById("sendFromAddress");
     fromEl.innerText = full ? shortAddr(full) : "—";
     fromEl.title = full;
@@ -1740,8 +3099,12 @@ const ROUTER_ABI = [
     "function getAmountsOut(uint amountIn, address[] path) view returns (uint[] amounts)",
     "function swapExactETHForTokens(uint amountOutMin, address[] path, address to, uint deadline) payable returns (uint[] amounts)",
     "function swapExactTokensForETH(uint amountIn, uint amountOutMin, address[] path, address to, uint deadline) returns (uint[] amounts)",
-    "function swapExactTokensForTokens(uint amountIn, uint amountOutMin, address[] path, address to, uint deadline) returns (uint[] amounts)"
+    "function swapExactTokensForTokens(uint amountIn, uint amountOutMin, address[] path, address to, uint deadline) returns (uint[] amounts)",
+    "function addLiquidityETH(address token, uint amountTokenDesired, uint amountTokenMin, uint amountETHMin, address to, uint deadline) payable returns (uint amountToken, uint amountETH, uint liquidity)",
+    "function addLiquidity(address tokenA, address tokenB, uint amountADesired, uint amountBDesired, uint amountAMin, uint amountBMin, address to, uint deadline) returns (uint amountA, uint amountB, uint liquidity)"
 ];
+const LISTA_STAKE_MANAGER = "0x1adB950d8bB3dA4bE104211D5AB038628e477fE6";
+const LISTA_STAKE_ABI = ["function deposit() payable"];
 const TOKEN_ICONS = Object.fromEntries(DASH_TOKENS.map(t => [t.id, t.icon]));
 const TOKEN_META = Object.fromEntries(DASH_TOKENS.map(t => [t.id, t.name]));
 const TOKEN_ADDR = Object.fromEntries(DASH_TOKENS.map(t => [t.id, t.native ? WBNB : t.address]));
@@ -1752,6 +3115,30 @@ function isWeb3TradeMode() {
     return !!isWeb3Mode && (entryFlow === "web3" || !!getWalletProvider());
 }
 
+function setDashWorkspace(panel) {
+    const allowed = isWeb3TradeMode() ? ["trade", "about"] : ["trade", "create", "tools", "about"];
+    dashWorkspacePanel = allowed.includes(panel) ? panel : "trade";
+    try { localStorage.setItem("agentgate_dash_panel", dashWorkspacePanel); } catch (_) {}
+    document.querySelectorAll("#dashWorkspaceSeg .dash-seg-btn").forEach(btn => {
+        const id = btn.dataset.dashPanel || "trade";
+        const isAgentBtn = btn.classList.contains("agent-only");
+        if (isAgentBtn) btn.hidden = isWeb3TradeMode();
+        const on = id === dashWorkspacePanel;
+        btn.classList.toggle("active", on);
+        btn.setAttribute("aria-selected", on ? "true" : "false");
+    });
+    document.querySelectorAll(".dash-panel").forEach(p => {
+        const id = p.dataset.panel || "";
+        const show = id === dashWorkspacePanel;
+        if (p.classList.contains("agent-only") && isWeb3TradeMode()) {
+            p.hidden = true;
+            return;
+        }
+        p.hidden = !show;
+    });
+    if (dashWorkspacePanel === "about") refreshAboutUniqueAgents();
+}
+
 function applyModeChrome() {
     const shell = document.querySelector(".app-shell");
     if (shell) {
@@ -1759,8 +3146,12 @@ function applyModeChrome() {
         shell.classList.toggle("mode-agent", !isWeb3TradeMode());
     }
     document.querySelectorAll(".agent-only").forEach(el => {
+        if (el.matches(".dash-panel")) return; // setDashWorkspace quản lý
+        if (el.id === "agentOwnershipBanner") return; // syncAgentOwnershipUi
         el.hidden = isWeb3TradeMode();
     });
+    syncAgentOwnershipUi();
+    setDashWorkspace(dashWorkspacePanel);
     const openBtn = document.getElementById("openPerp");
     if (openBtn && !openBtn.dataset.busy) {
         if (isWeb3TradeMode()) {
@@ -2122,6 +3513,7 @@ async function updateSwapQuote() {
 }
 
 document.getElementById("swapBtn").onclick = async () => {
+    if (!requireAgentOwnership()) return;
     closeTokenMenus();
     document.getElementById("swapModal").style.display = "flex";
     syncSwapTokenIcons();
@@ -2325,6 +3717,40 @@ async function refreshStockQuotes() {
 
 document.getElementById("tabToken").onclick = () => setDashMarketTab("token");
 
+document.getElementById("manageTokensBtn")?.addEventListener("click", () => openManageTokensModal());
+document.getElementById("sortTokensBtn")?.addEventListener("click", () => cycleTokenSort());
+document.getElementById("tokenNetworkBtn")?.addEventListener("click", () => showToast(t("toastNetworkBsc"), 2800));
+document.getElementById("manageNetworkChip")?.addEventListener("click", () => showToast(t("toastNetworkBsc"), 2800));
+document.getElementById("closeManageTokens")?.addEventListener("click", () => {
+    document.getElementById("manageTokensModal").style.display = "none";
+    renderTokenList();
+    refreshPortfolio().catch(() => {});
+});
+document.getElementById("manageTokenSearch")?.addEventListener("input", (e) => {
+    manageTokenQuery = e.target.value || "";
+    renderManageTokenList();
+});
+document.getElementById("openAddCustomToken")?.addEventListener("click", () => {
+    resetCustomTokenForm();
+    setManageView("add");
+    document.getElementById("customTokenAddress")?.focus();
+});
+document.getElementById("backFromAddToken")?.addEventListener("click", () => {
+    resetCustomTokenForm();
+    setManageView("list");
+    renderManageTokenList();
+});
+document.getElementById("closeAddCustomToken")?.addEventListener("click", () => {
+    document.getElementById("manageTokensModal").style.display = "none";
+});
+let customTokenLookupTimer = null;
+document.getElementById("customTokenAddress")?.addEventListener("input", (e) => {
+    const val = (e.target.value || "").trim();
+    clearTimeout(customTokenLookupTimer);
+    customTokenLookupTimer = setTimeout(() => lookupCustomToken(val), 450);
+});
+document.getElementById("saveCustomToken")?.addEventListener("click", () => savePendingCustomToken());
+
 document.getElementById("tabNFT").onclick = async () => {
     setDashMarketTab("nft");
 
@@ -2372,8 +3798,13 @@ document.getElementById("stocksBtn")?.addEventListener("click", async () => {
 });
 
 document.getElementById("copyAgentBtn").onclick = () => {
+    if (!requireAgentOwnership()) return;
     const el = document.getElementById("agentAddress");
-    const addr = el.dataset.full || el.innerText;
+    const addr = el.dataset.full || currentDashboardAddress || "";
+    if (!addr || !ethers.utils.isAddress(addr)) {
+        showToast(t("toastNeedOwnership"), 4200);
+        return;
+    }
     navigator.clipboard.writeText(addr);
     showToast(t("toastCopied"));
 };
@@ -2446,6 +3877,7 @@ async function fetchHistoryBlockscout(address) {
 
 // History — BscScan rồi fallback Blockscout
 document.getElementById("historyBtn").onclick = async () => {
+    if (!requireAgentOwnership()) return;
     const address = currentDashboardAddress || document.getElementById("agentAddress").dataset.full;
     document.getElementById("historyModal").style.display = "flex";
     const list = document.getElementById("historyList");
@@ -2501,6 +3933,33 @@ document.addEventListener("keydown", (e) => {
 });
 
 document.getElementById("activateGateBtn").onclick = () => onChainCheckIn();
+document.getElementById("optionalOwnerWalletBtn")?.addEventListener("click", () => {
+    pendingAgentLogin = currentAgentName || document.getElementById("agentInput")?.value || pendingAgentLogin;
+    renderWalletChoices("agentProof");
+    showToast(t("agentNeedOwnWallet"), 4200);
+});
+document.getElementById("openBinanceAiVerify")?.addEventListener("click", () => openBinanceAiVerify());
+document.getElementById("copyAgentVerifyPrompt")?.addEventListener("click", () => {
+    copyAgentVerifyPromptText().then(() => showToast(t("toastCopiedPrompt"))).catch(() => {});
+});
+document.getElementById("confirmAgentVerifyPoll")?.addEventListener("click", () => {
+    showToast(t("toastVerifyPolling"), 2200);
+    pollAgentSessionVerify();
+});
+document.getElementById("verifyOwnerWalletBtn")?.addEventListener("click", () => {
+    pendingAgentLogin = agentVerifyHandle || document.getElementById("agentInput")?.value || pendingAgentLogin;
+    renderWalletChoices("agentProof");
+    showToast(t("agentNeedOwnWallet"), 4200);
+});
+document.getElementById("cancelAgentVerify")?.addEventListener("click", () => {
+    stopAgentVerifyUi();
+    agentVerifyOwner = "";
+    agentVerifyHandle = "";
+    agentVerifyStartedAt = 0;
+    agentVerifySessionId = "";
+    const resultDiv = document.getElementById("result");
+    if (resultDiv) { resultDiv.className = ""; resultDiv.innerText = ""; }
+});
 document.getElementById("clearIntentsBtn").onclick = () => {
     localStorage.removeItem("agentgate_intents");
     renderIntentHistory();
@@ -2517,11 +3976,11 @@ function setHowToOpen(open) {
 }
 
 (function initHowToGuide() {
-    let open = true;
+    let open = true; // mặc định mở hướng dẫn đầy đủ cho user mới
     try {
         const saved = localStorage.getItem("agentgate_howto_open");
         if (saved === "0") open = false;
-        if (saved === "1") open = true;
+        else if (saved === "1") open = true;
     } catch (_) {}
     setHowToOpen(open);
     document.getElementById("toggleHowToBtn")?.addEventListener("click", () => {
@@ -2541,10 +4000,11 @@ renderIntentHistory();
 // ===== AI AGENT INTENT (Hackathon: agent-wallet execution) =====
 function getAgentWalletContext() {
     const a = document.getElementById("agentAddress");
-    const wallet = (a && (a.dataset.full || a.innerText)) || "";
+    const fromDom = a && a.dataset.full && ethers.utils.isAddress(a.dataset.full) ? a.dataset.full : "";
+    const wallet = currentDashboardAddress || currentAgentAddress || agentVerifyOwner || fromDom || userAddress || "";
     return {
         wallet,
-        agentId: currentAgentName || "unknown",
+        agentId: currentAgentName || agentVerifyHandle || "unknown",
         chain: "BNB Smart Chain",
         chainId: 56
     };
@@ -2596,12 +4056,18 @@ function buildAgentPrompt(intent, humanSummary) {
         "RULES (mandatory):",
         "1) Parse the INTENT JSON below.",
         "2) Simulate / dry-run first. Do NOT sign or broadcast if simulation fails.",
-        "3) Always require explicit user/agent confirmation before any asset movement. Never bypass confirmation.",
-        "4) Prefer BNB Chain / BSC venues when available (Venus, Lista, PancakeSwap, etc.).",
+        "3) Always require explicit user confirmation before any asset movement (transfer/trade/approve). Never bypass confirmation. Never auto-execute.",
+        "4) Prefer BNB Smart Chain / BSC venues when available (Venus, Lista, PancakeSwap, etc.).",
         "5) After execution, return tx hash or clear failure reason.",
-        "6) Show risk warnings for trading / leverage / prediction stakes / earn deposits.",
+        "6) Show risk warnings for trading / leverage / prediction stakes / earn deposits. Do not promise passive income or guaranteed returns.",
         "7) For earn.deposit: use the named protocol's official contracts on BSC; never invent fake CEX Simple Earn APYs.",
-        "8) Before ANY market/earn/transfer execution (after simulate + user confirm): call AgentGate.logIntent then AgentGate.recordAction. Do not skip these when the contract address is set."
+        "8) Before ANY market/earn/transfer/launch execution (after simulate + user confirm): call AgentGate.logIntent then AgentGate.recordAction. Do not skip these when the contract address is set.",
+        "9) For token.launch / nft.create: deploy on BNB Smart Chain only; verify bytecode; if logo/image is upload-only (no URL), ask user for IPFS/HTTPS before deploy; mint initial supply to the Agent wallet; clearly disclose mint/ownable/pause permissions; return contract address + explorer links.",
+        "10) For token.approve / token.revoke: verify spender is an official contract; prefer exact allowance; only use MaxUint256/unlimited when the intent explicitly sets unlimited=true AND the user confirmed that risk; revoke sets allowance to 0.",
+        "11) For bridge.transfer: only use reputable bridges; confirm source/dest chains + destination address; simulate quote/fee before sign.",
+        "12) For earn.withdraw / earn.claim: use the named protocol's redeem/claim methods on BSC; never invent fake yields.",
+        "13) For perp.cancel: cancel only the specified hanging Limit/Stop order(s); confirm market/side/order id or price before cancel.",
+        "14) Never resolve, look up, or disclose third-party Agent ID / name.ai wallets. Operate only on the connected Agent wallet that already proved ownership in AgentGate."
     ];
     if (gate) {
         const actionTag = String(intent.type || "action").split(".")[0] || "action";
@@ -2659,6 +4125,13 @@ function renderIntentHistory() {
 }
 
 function openIntentHandoff(title, intent, humanSummary) {
+    // Cho phép checkIn khi chưa verified; mọi intent khác cần ownership (AI Agent hoặc ví chủ)
+    const isGateCheckIn = intent?.type === "gate.checkIn";
+    if (!isGateCheckIn && !isWeb3Mode && !agentOwnershipVerified) {
+        showToast(t("toastNeedOwnership"), 4200);
+        document.getElementById("activateGateBtn")?.scrollIntoView({ behavior: "smooth", block: "center" });
+        return "";
+    }
     // Enrich intent with gate contract for agents
     const gate = getAgentGateAddress();
     if (gate) {
@@ -2730,13 +4203,26 @@ function updatePerpPreview() {
 let perpMarginMode = "Cross";
 let perpOrderType = "market";
 
+function syncPerpOrderTypeUi() {
+    const limitBox = document.getElementById("perpLimitFields");
+    const stopBox = document.getElementById("perpStopFields");
+    if (limitBox) limitBox.hidden = perpOrderType !== "limit";
+    if (stopBox) stopBox.hidden = perpOrderType !== "stop";
+    document.querySelectorAll("#perpOrderTypes .perp-otype").forEach(b => {
+        b.classList.toggle("active", (b.dataset.otype || "market") === perpOrderType);
+    });
+}
+
 function buildPerpIntentFromForm() {
     const size = document.getElementById("perpSize").value.trim();
     const leverage = document.getElementById("leverageSlider").value;
     const tp = document.getElementById("tpPrice")?.value?.trim() || null;
     const sl = document.getElementById("slPrice")?.value?.trim() || null;
     const mark = parseMarkPrice();
-    return buildAgentIntent("perp.open", {
+    const limitPrice = document.getElementById("perpLimitPrice")?.value?.trim() || null;
+    const stopTrigger = document.getElementById("perpStopTrigger")?.value?.trim() || null;
+    const stopLimitPrice = document.getElementById("perpStopLimitPrice")?.value?.trim() || null;
+    const params = {
         market: selectedPair,
         side: perpSide,
         sizeUsdt: Number(size),
@@ -2747,8 +4233,17 @@ function buildPerpIntentFromForm() {
         stopLoss: sl ? Number(sl) : null,
         markPrice: mark || null,
         marginUsdt: Number(size),
-        notionalUsdt: Number(size) * Number(leverage)
-    });
+        notionalUsdt: Number(size) * Number(leverage),
+        limitPrice: null,
+        stopTrigger: null,
+        stopLimitPrice: null
+    };
+    if (params.orderType === "limit" && limitPrice) params.limitPrice = Number(limitPrice);
+    if (params.orderType === "stop") {
+        if (stopTrigger) params.stopTrigger = Number(stopTrigger);
+        if (stopLimitPrice) params.stopLimitPrice = Number(stopLimitPrice);
+    }
+    return buildAgentIntent("perp.open", params);
 }
 
 function estimateWeb3PerpAmount(route, sizeUsdt) {
@@ -2764,16 +4259,197 @@ function estimateWeb3PerpAmount(route, sizeUsdt) {
     return "";
 }
 
-async function executeWeb3PerpOrder() {
+const WEB3_PERP_ORDERS_KEY = "agentgate_web3_perp_orders_v1";
+let web3PerpOrders = [];
+let web3PerpFilling = false;
+let perpBottomTab = "positions";
+window.__agWeb3PerpReady = true;
+
+function loadWeb3PerpOrders() {
+    try {
+        const raw = JSON.parse(localStorage.getItem(WEB3_PERP_ORDERS_KEY) || "[]");
+        web3PerpOrders = Array.isArray(raw) ? raw : [];
+    } catch (_) {
+        web3PerpOrders = [];
+    }
+}
+
+function saveWeb3PerpOrders() {
+    localStorage.setItem(WEB3_PERP_ORDERS_KEY, JSON.stringify(web3PerpOrders));
+}
+
+function limitFillable(side, mark, limitPrice) {
+    if (!(mark > 0) || !(limitPrice > 0)) return false;
+    return side === "Long" ? mark <= limitPrice : mark >= limitPrice;
+}
+
+function stopTriggerHit(side, mark, trigger) {
+    if (!(mark > 0) || !(trigger > 0)) return false;
+    return side === "Long" ? mark >= trigger : mark <= trigger;
+}
+
+async function fireWeb3PerpSwap(order) {
+    const route = perpSpotRoute(order.side, order.market);
+    const amount = estimateWeb3PerpAmount(route, order.sizeUsdt);
+    await openWeb3Swap(route.from, route.to, amount);
+}
+
+function setPerpBottomTab(tab) {
+    perpBottomTab = ["positions", "orders", "history", "trades"].includes(tab) ? tab : "positions";
+    document.querySelectorAll(".perp-btab").forEach(b => {
+        b.classList.toggle("active", (b.dataset.perpPanel || "") === perpBottomTab);
+    });
+    const pos = document.getElementById("perpPositionsEmpty");
+    const orders = document.getElementById("perpOpenOrders");
+    const hist = document.getElementById("perpHistoryEmpty");
+    if (pos) pos.hidden = perpBottomTab !== "positions";
+    if (orders) orders.hidden = perpBottomTab !== "orders";
+    if (hist) hist.hidden = !(perpBottomTab === "history" || perpBottomTab === "trades");
+    if (perpBottomTab === "orders") renderWeb3PerpOrders();
+}
+
+function renderWeb3PerpOrders() {
+    const box = document.getElementById("perpOpenOrders");
+    if (!box) return;
+    loadWeb3PerpOrders();
+    if (!web3PerpOrders.length) {
+        box.innerHTML = `<div class="perp-bottom-empty">${t("perpOrdersEmpty")}</div>`;
+        return;
+    }
+    box.innerHTML = web3PerpOrders.map(o => {
+        const kind = o.orderType === "stop" ? "Stop Limit" : "Limit";
+        const status = o.orderType === "stop"
+            ? (o.armed ? t("armedLabel") : t("waitingLabel"))
+            : t("waitingLabel");
+        const px = o.orderType === "stop"
+            ? `trig ${fmtNum(o.stopTrigger, 2)} → lim ${fmtNum(o.stopLimitPrice, 2)}`
+            : `lim ${fmtNum(o.limitPrice, 2)}`;
+        return `<div class="perp-order-row" data-oid="${o.id}">
+            <div class="perp-order-main">
+                <strong>${o.side} · ${o.market}</strong>
+                <span>${kind} · ${status}</span>
+                <em>${px} · $${fmtNum(o.sizeUsdt, 2)} · ${o.leverage || 1}x</em>
+            </div>
+            <button type="button" class="perp-order-cancel" data-cancel-oid="${o.id}">${t("cancelOrder")}</button>
+        </div>`;
+    }).join("");
+    box.querySelectorAll("[data-cancel-oid]").forEach(btn => {
+        btn.onclick = () => cancelWeb3PerpOrder(btn.dataset.cancelOid);
+    });
+}
+
+function cancelWeb3PerpOrder(id) {
+    loadWeb3PerpOrders();
+    web3PerpOrders = web3PerpOrders.filter(o => o.id !== id);
+    saveWeb3PerpOrders();
+    renderWeb3PerpOrders();
+    showToast(t("toastOrderCancelled"));
+}
+
+async function tickWeb3PerpOrders(markOverride) {
+    if (!isWeb3TradeMode() || web3PerpFilling) return;
+    loadWeb3PerpOrders();
+    if (!web3PerpOrders.length) return;
+    const mark = markOverride > 0 ? markOverride : parseMarkPrice();
+    if (!(mark > 0)) return;
+    let changed = false;
+    for (const o of web3PerpOrders) {
+        if (o.orderType === "stop" && !o.armed && stopTriggerHit(o.side, mark, o.stopTrigger)) {
+            o.armed = true;
+            changed = true;
+        }
+    }
+    if (changed) {
+        saveWeb3PerpOrders();
+        if (perpBottomTab === "orders") renderWeb3PerpOrders();
+    }
+    const hit = web3PerpOrders.find(o => {
+        if (o.orderType === "limit") return limitFillable(o.side, mark, o.limitPrice);
+        if (o.orderType === "stop") return o.armed && limitFillable(o.side, mark, o.stopLimitPrice);
+        return false;
+    });
+    if (!hit) return;
+    web3PerpFilling = true;
+    web3PerpOrders = web3PerpOrders.filter(o => o.id !== hit.id);
+    saveWeb3PerpOrders();
+    renderWeb3PerpOrders();
+    setPerpBottomTab("orders");
+    showToast(t("toastOrderTriggered"), 4200);
+    try {
+        await fireWeb3PerpSwap(hit);
+    } finally {
+        web3PerpFilling = false;
+    }
+}
+
+async function placeOrFillWeb3PerpOrder() {
     const size = document.getElementById("perpSize").value;
     if (!size || isNaN(size) || parseFloat(size) <= 0) {
         showToast(t("invalidAmount"));
         return null;
     }
-    const route = perpSpotRoute(perpSide, selectedPair);
-    const amount = estimateWeb3PerpAmount(route, size);
-    await openWeb3Swap(route.from, route.to, amount);
-    return null;
+    const ot = perpOrderType || "market";
+    if (ot === "market") {
+        await fireWeb3PerpSwap({
+            side: perpSide,
+            market: selectedPair,
+            sizeUsdt: parseFloat(size)
+        });
+        return null;
+    }
+    let limitPrice = null;
+    let stopTrigger = null;
+    let stopLimitPrice = null;
+    if (ot === "limit") {
+        limitPrice = parseFloat(document.getElementById("perpLimitPrice")?.value);
+        if (!(limitPrice > 0)) {
+            showToast(t("toastNeedLimitPrice"));
+            return null;
+        }
+    }
+    if (ot === "stop") {
+        stopTrigger = parseFloat(document.getElementById("perpStopTrigger")?.value);
+        stopLimitPrice = parseFloat(document.getElementById("perpStopLimitPrice")?.value);
+        if (!(stopTrigger > 0) || !(stopLimitPrice > 0)) {
+            showToast(t("toastNeedStopPrice"));
+            return null;
+        }
+    }
+    const mark = parseMarkPrice();
+    const leverage = Number(document.getElementById("leverageSlider")?.value) || 1;
+    const order = {
+        id: `w3_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        orderType: ot,
+        side: perpSide,
+        market: selectedPair,
+        sizeUsdt: parseFloat(size),
+        leverage,
+        marginMode: perpMarginMode || "Cross",
+        limitPrice,
+        stopTrigger,
+        stopLimitPrice,
+        armed: ot === "stop" ? stopTriggerHit(perpSide, mark, stopTrigger) : false,
+        createdAt: Date.now()
+    };
+    const canFillNow = ot === "limit"
+        ? limitFillable(order.side, mark, order.limitPrice)
+        : (order.armed && limitFillable(order.side, mark, order.stopLimitPrice));
+    if (canFillNow) {
+        showToast(t("toastOrderTriggered"), 4200);
+        await fireWeb3PerpSwap(order);
+        return null;
+    }
+    loadWeb3PerpOrders();
+    web3PerpOrders.unshift(order);
+    saveWeb3PerpOrders();
+    setPerpBottomTab("orders");
+    renderWeb3PerpOrders();
+    showToast(ot === "stop" ? t("toastStopQueued") : t("toastLimitQueued"), 4200);
+    return order;
+}
+
+async function executeWeb3PerpOrder() {
+    return placeOrFillWeb3PerpOrder();
 }
 
 function handoffPerpOrder() {
@@ -2782,17 +4458,39 @@ function handoffPerpOrder() {
         showToast(t("invalidAmount"));
         return null;
     }
+    if (perpOrderType === "limit") {
+        const lp = parseFloat(document.getElementById("perpLimitPrice")?.value);
+        if (!(lp > 0)) {
+            showToast(t("toastNeedLimitPrice"));
+            return null;
+        }
+    }
+    if (perpOrderType === "stop") {
+        const trig = parseFloat(document.getElementById("perpStopTrigger")?.value);
+        const slp = parseFloat(document.getElementById("perpStopLimitPrice")?.value);
+        if (!(trig > 0) || !(slp > 0)) {
+            showToast(t("toastNeedStopPrice"));
+            return null;
+        }
+    }
     if (isWeb3TradeMode()) {
-        executeWeb3PerpOrder();
+        placeOrFillWeb3PerpOrder();
         return null;
     }
     const intent = buildPerpIntentFromForm();
-    const summary = `Open a ${intent.params.side} perpetual on ${intent.params.market} with margin ${intent.params.sizeUsdt} USDT at ${intent.params.leverage}x` +
-        (intent.params.takeProfit ? `, TP ${intent.params.takeProfit}` : "") +
+    const ot = intent.params.orderType || "market";
+    let summary = `Open a ${intent.params.side} ${ot} perpetual on ${intent.params.market} with margin ${intent.params.sizeUsdt} USDT at ${intent.params.leverage}x`;
+    if (ot === "limit" && intent.params.limitPrice) summary += `, limit price ${intent.params.limitPrice}`;
+    if (ot === "stop") {
+        if (intent.params.stopTrigger) summary += `, stop trigger ${intent.params.stopTrigger}`;
+        if (intent.params.stopLimitPrice) summary += `, stop-limit price ${intent.params.stopLimitPrice}`;
+    }
+    summary += (intent.params.takeProfit ? `, TP ${intent.params.takeProfit}` : "") +
         (intent.params.stopLoss ? `, SL ${intent.params.stopLoss}` : "") +
-        `. Venue: BSC perp DEX if available, otherwise agent-compatible futures execution.`;
-    const prompt = openIntentHandoff(`Perp ${intent.params.side} · ${intent.params.market}`, intent, summary);
+        `. Venue: BSC perp DEX if available, otherwise agent-compatible futures execution. Simulate first; confirm before place.`;
+    const prompt = openIntentHandoff(`Perp ${ot} ${intent.params.side} · ${intent.params.market}`, intent, summary);
     navigator.clipboard.writeText(prompt).then(() => showToast(t("toastCopiedPrompt"))).catch(() => {});
+    trackAgentPerpOrder(intent);
     return intent;
 }
 
@@ -2943,6 +4641,7 @@ async function refreshTicker(pair) {
         document.getElementById("openInterest").innerText = fmtNum(oi.openInterest, 2);
         refreshMarketList();
         updatePerpPreview();
+        tickWeb3PerpOrders(Number(mark.markPrice));
     } catch (e) {
         console.error(e);
     }
@@ -3004,6 +4703,7 @@ function connectPerpSocket(pair, tf) {
             document.getElementById("markPrice").innerText = "$" + fmtNum(k.c, 2);
             const lastEl = document.getElementById("lastPrice");
             if (lastEl) lastEl.innerText = fmtNum(k.c, 2);
+            tickWeb3PerpOrders(+k.c);
         } catch (_) {}
     };
 }
@@ -3094,25 +4794,58 @@ function setupPerp() {
         showToast(t("toastCopiedJson"));
     };
 
+    function selectPerpPair(el) {
+        if (!el?.dataset?.pair) return;
+        selectedPair = el.dataset.pair;
+        document.getElementById("currentPair").innerText = selectedPair;
+        const tradeLabel = document.getElementById("perpTradePairLabel");
+        if (tradeLabel) tradeLabel.innerText = selectedPair;
+        const icon = document.getElementById("currentPairIcon");
+        if (icon && el.dataset.icon) icon.src = el.dataset.icon;
+        document.querySelectorAll(".pair-item").forEach(i => {
+            i.classList.toggle("active", i.dataset.pair === selectedPair);
+        });
+        const maxLev = el.dataset.lev;
+        const levSlider = document.getElementById("leverageSlider");
+        if (maxLev && levSlider) {
+            levSlider.max = maxLev;
+            if (Number(levSlider.value) > Number(maxLev)) levSlider.value = maxLev;
+            updateLeverageSlider(levSlider);
+        }
+        loadChart(selectedPair, selectedTf);
+        updatePerpPreview();
+        closePerpPairSheet();
+        if (window.matchMedia("(max-width: 900px)").matches) setPerpPane("chart");
+    }
+
     document.querySelectorAll(".pair-item").forEach(el => {
-        el.onclick = () => {
-            selectedPair = el.dataset.pair;
-            document.getElementById("currentPair").innerText = selectedPair;
-            const icon = document.getElementById("currentPairIcon");
-            if (icon && el.dataset.icon) icon.src = el.dataset.icon;
-            document.querySelectorAll(".pair-item").forEach(i => i.classList.remove("active"));
-            el.classList.add("active");
-            const maxLev = el.dataset.lev;
-            const levSlider = document.getElementById("leverageSlider");
-            if (maxLev && levSlider) {
-                levSlider.max = maxLev;
-                if (Number(levSlider.value) > Number(maxLev)) levSlider.value = maxLev;
-                updateLeverageSlider(levSlider);
-            }
-            loadChart(selectedPair, selectedTf);
-            updatePerpPreview();
-        };
+        el.onclick = () => selectPerpPair(el);
     });
+
+    function openPerpPairSheet() {
+        const sheet = document.getElementById("perpPairSheet");
+        const list = document.getElementById("perpPairSheetList");
+        const src = document.getElementById("perpMarketList");
+        if (!sheet || !list || !src) return;
+        list.innerHTML = src.innerHTML;
+        list.querySelectorAll(".pair-item").forEach(el => {
+            el.onclick = () => selectPerpPair(el);
+        });
+        sheet.hidden = false;
+        document.body.classList.add("sheet-open");
+    }
+
+    function closePerpPairSheet() {
+        const sheet = document.getElementById("perpPairSheet");
+        if (sheet) sheet.hidden = true;
+        document.body.classList.remove("sheet-open");
+    }
+
+    document.getElementById("perpPairPickerBtn")?.addEventListener("click", () => {
+        if (window.matchMedia("(max-width: 900px)").matches) openPerpPairSheet();
+    });
+    document.getElementById("closePerpPairSheet")?.addEventListener("click", closePerpPairSheet);
+    document.getElementById("perpPairSheetBackdrop")?.addEventListener("click", closePerpPairSheet);
 
     document.querySelectorAll("#marginModeSeg .perp-seg-btn").forEach(btn => {
         btn.onclick = () => {
@@ -3122,23 +4855,44 @@ function setupPerp() {
     });
     document.querySelectorAll("#perpOrderTypes .perp-otype").forEach(btn => {
         btn.onclick = () => {
-            const t = btn.dataset.otype || "market";
-            if (t !== "market") {
-                showToast(t("toastMarketOnly"));
-                return;
+            const next = btn.dataset.otype || "market";
+            perpOrderType = next;
+            syncPerpOrderTypeUi();
+            const mark = parseMarkPrice();
+            if (mark > 0) {
+                if (next === "limit") {
+                    const el = document.getElementById("perpLimitPrice");
+                    if (el && !el.value) el.value = String(mark);
+                }
+                if (next === "stop") {
+                    const trig = document.getElementById("perpStopTrigger");
+                    const slp = document.getElementById("perpStopLimitPrice");
+                    if (trig && !trig.value) trig.value = String(mark);
+                    if (slp && !slp.value) slp.value = String(mark);
+                }
             }
-            perpOrderType = t;
-            document.querySelectorAll("#perpOrderTypes .perp-otype").forEach(b => b.classList.toggle("active", b === btn));
         };
     });
+    syncPerpOrderTypeUi();
+    const fillMark = (id) => {
+        const mark = parseMarkPrice();
+        if (!(mark > 0)) {
+            showToast(t("toastNoMark"));
+            return;
+        }
+        const el = document.getElementById(id);
+        if (el) el.value = String(mark);
+    };
+    document.getElementById("perpLimitMarkBtn")?.addEventListener("click", () => fillMark("perpLimitPrice"));
+    document.getElementById("perpStopMarkBtn")?.addEventListener("click", () => fillMark("perpStopTrigger"));
     document.getElementById("perpLevBtn").onclick = () => {
         document.getElementById("leverageSlider")?.focus();
     };
+    loadWeb3PerpOrders();
     document.querySelectorAll(".perp-btab").forEach(tab => {
-        tab.onclick = () => {
-            document.querySelectorAll(".perp-btab").forEach(t => t.classList.toggle("active", t === tab));
-        };
+        tab.onclick = () => setPerpBottomTab(tab.dataset.perpPanel || "positions");
     });
+    setPerpBottomTab(perpBottomTab);
 
     document.querySelectorAll(".tf-btn").forEach(btn => {
         btn.onclick = () => {
@@ -3161,11 +4915,44 @@ function setupPerp() {
     });
 }
 
+let perpPane = "markets";
+
+function setPerpPane(pane) {
+    const page = document.getElementById("perpPage");
+    if (!page) return;
+    const next = ["markets", "chart", "trade"].includes(pane) ? pane : "markets";
+    perpPane = next;
+    page.dataset.perpPane = next;
+    document.querySelectorAll(".perp-pane-tab").forEach(tab => {
+        tab.classList.toggle("active", tab.dataset.pane === next);
+    });
+    const title = document.getElementById("perpPaneTitle");
+    if (title) {
+        title.innerText = next === "chart" ? t("perpChart")
+            : next === "trade" ? t("perpTrade")
+            : t("perpMarkets");
+    }
+    const back = document.getElementById("perpBackPane");
+    if (back) back.style.visibility = next === "markets" ? "hidden" : "visible";
+    if (next === "chart") {
+        setTimeout(() => {
+            const container = document.getElementById("chartContainer");
+            if (chart && container) {
+                chart.applyOptions({ width: container.clientWidth, height: container.clientHeight || 320 });
+                try { chart.timeScale().fitContent(); } catch (_) {}
+            }
+        }, 80);
+    }
+}
+
 function openPerpPage() {
+    if (!requireAgentOwnership()) return;
     const page = document.getElementById("perpPage");
     page.style.display = "flex";
     setupPerp();
     setPerpAiOpen(false);
+    const mobile = window.matchMedia("(max-width: 900px)").matches;
+    setPerpPane(mobile ? "markets" : "chart");
     setTimeout(() => {
         initChart();
         loadChart(selectedPair, selectedTf);
@@ -3185,6 +4972,9 @@ function openPerpPage() {
 
 function closePerpPage() {
     document.getElementById("perpPage").style.display = "none";
+    const sheet = document.getElementById("perpPairSheet");
+    if (sheet) sheet.hidden = true;
+    document.body.classList.remove("sheet-open");
     setPerpAiOpen(false);
     if (perpWs) {
         try { perpWs.close(); } catch (_) {}
@@ -3200,11 +4990,62 @@ document.getElementById("perpBtn").onclick = openPerpPage;
 document.getElementById("defiBtn")?.addEventListener("click", () => showToast(t("toastComingSoon"), 3200));
 document.getElementById("closePerpPage").onclick = closePerpPage;
 
-// ===== EARN (AI Agent intent handoff) =====
+document.querySelectorAll(".perp-pane-tab").forEach(tab => {
+    tab.addEventListener("click", () => setPerpPane(tab.dataset.pane));
+});
+document.getElementById("perpBackPane")?.addEventListener("click", () => {
+    if (perpPane === "trade") setPerpPane("chart");
+    else setPerpPane("markets");
+});
+document.getElementById("perpGoTradeLong")?.addEventListener("click", () => {
+    document.getElementById("longTab")?.click();
+    setPerpPane("trade");
+});
+document.getElementById("perpGoTradeShort")?.addEventListener("click", () => {
+    document.getElementById("shortTab")?.click();
+    setPerpPane("trade");
+});
+document.getElementById("perpMarketSearch")?.addEventListener("input", (e) => {
+    const q = String(e.target.value || "").trim().toLowerCase();
+    document.querySelectorAll("#perpMarketList .pair-item").forEach(item => {
+        const pair = String(item.dataset.pair || "").toLowerCase();
+        item.hidden = !!(q && !pair.includes(q));
+    });
+});
+
+// ===== EARN (Web3 on-chain + AI Agent intent) =====
+const VENUS_VBNB = "0xA07c5b74C9B40447a954e1466938b865b6BBea36";
+const VENUS_VUSDT = "0xfD5840Cd36d94D7229439859C0112a4185BC0255";
+const VENUS_VBNB_ABI = ["function mint() payable"];
+const VENUS_VTOKEN_ABI = ["function mint(uint256 mintAmount) returns (uint256)"];
 const EARN_PROTOCOLS = [
-    { id: "venus", name: "Venus", product: "Flexible Supply", assets: ["BNB", "USDT"], note: "vToken lending on BSC" },
-    { id: "lista", name: "Lista DAO", product: "slisBNB staking", assets: ["BNB"], note: "Liquid staking on BSC" },
-    { id: "pancake", name: "PancakeSwap", product: "Syrup / Flexible", assets: ["BNB", "USDT"], note: "On-chain yield pools" }
+    {
+        id: "venus",
+        name: "Venus",
+        product: "Flexible Supply",
+        assets: ["BNB", "USDT"],
+        note: "Supply → vBNB / vUSDT (lending)",
+        web3: true,
+        markets: { BNB: VENUS_VBNB, USDT: VENUS_VUSDT }
+    },
+    {
+        id: "lista",
+        name: "Lista DAO",
+        product: "slisBNB staking",
+        assets: ["BNB"],
+        note: "Stake BNB → slisBNB (liquid staking)",
+        web3: true,
+        markets: { BNB: LISTA_STAKE_MANAGER }
+    },
+    {
+        id: "pancake",
+        name: "PancakeSwap",
+        product: "BNB-USDT LP V2",
+        assets: ["BNB", "USDT"],
+        note: "Zap 50/50 → add BNB-USDT LP (fee earn)",
+        web3: true,
+        markets: { router: PCS_ROUTER }
+    }
 ];
 let earnProtocolId = "venus";
 let earnAsset = "BNB";
@@ -3213,12 +5054,18 @@ function getEarnProtocol() {
     return EARN_PROTOCOLS.find(p => p.id === earnProtocolId) || EARN_PROTOCOLS[0];
 }
 
+function earnProtocolsForMode() {
+    return EARN_PROTOCOLS;
+}
+
 function renderEarnProtocols() {
     const box = document.getElementById("earnProtocolList");
     if (!box) return;
-    box.innerHTML = EARN_PROTOCOLS.map(p => `
+    const list = earnProtocolsForMode();
+    if (!list.some(p => p.id === earnProtocolId)) earnProtocolId = list[0]?.id || "venus";
+    box.innerHTML = list.map(p => `
         <button type="button" class="earn-protocol-btn${p.id === earnProtocolId ? " active" : ""}" data-protocol="${p.id}" role="option" aria-selected="${p.id === earnProtocolId}">
-            <strong>${p.name}</strong>
+            <strong>${p.name}${isWeb3TradeMode() && p.web3 ? " · Live" : ""}</strong>
             <span>${p.note}</span>
         </button>`).join("");
     box.querySelectorAll(".earn-protocol-btn").forEach(btn => {
@@ -3245,6 +5092,9 @@ function syncEarnAssetUi() {
     if (availUnit) availUnit.textContent = earnAsset;
     const product = document.getElementById("earnProductLabel");
     if (product) product.textContent = getEarnProtocol().product;
+    const hint = document.querySelector("#earnModal [data-i18n='earnHint']");
+    if (hint) hint.innerText = t("earnHint");
+    syncEarnConfirm();
 }
 
 async function refreshEarnAvailable() {
@@ -3254,7 +5104,9 @@ async function refreshEarnAvailable() {
     try {
         const addr = userAddress || document.getElementById("agentAddress")?.dataset?.full;
         if (addr && window.ethers) {
-            const rpc = new ethers.providers.JsonRpcProvider("https://bsc-dataseed.binance.org/");
+            let rpc;
+            if (isWeb3TradeMode() && signer?.provider) rpc = signer.provider;
+            else rpc = new ethers.providers.JsonRpcProvider("https://bsc-dataseed.binance.org/");
             if (earnAsset === "BNB") {
                 bal = Number(ethers.utils.formatEther(await rpc.getBalance(addr)));
             } else if (earnAsset === "USDT") {
@@ -3268,21 +5120,58 @@ async function refreshEarnAvailable() {
     el.textContent = bal > 0 ? bal.toFixed(6).replace(/\.?0+$/, "") : "0";
 }
 
+let earnAction = "deposit"; // deposit | withdraw | claim
+
+function setEarnAction(action, skipConfirmSync) {
+    earnAction = ["deposit", "withdraw", "claim"].includes(action) ? action : "deposit";
+    document.querySelectorAll("#earnActionTabs .launch-tab").forEach(b => {
+        b.classList.toggle("active", (b.dataset.earnAction || "") === earnAction);
+    });
+    const amountBox = document.getElementById("earnAmount")?.parentElement;
+    const avail = document.querySelector("#earnModal .transfer-available");
+    const hideAmt = earnAction === "claim";
+    if (amountBox) amountBox.hidden = hideAmt;
+    const amtLabel = [...document.querySelectorAll("#earnModal .transfer-field-label")].find(el => el.getAttribute("data-i18n") === "amount");
+    if (amtLabel) amtLabel.hidden = hideAmt;
+    if (avail) avail.hidden = hideAmt;
+    if (!skipConfirmSync) syncEarnConfirm();
+}
+
 function syncEarnConfirm() {
     const btn = document.getElementById("confirmEarn");
     const amt = parseFloat(document.getElementById("earnAmount")?.value);
-    if (btn) btn.disabled = !(amt > 0);
+    if (!btn) return;
+    if (isWeb3TradeMode()) {
+        if (earnAction !== "deposit") setEarnAction("deposit", true);
+        btn.disabled = !(amt > 0);
+        btn.innerText = t("earnConfirmWeb3");
+        return;
+    }
+    if (earnAction === "claim") {
+        btn.disabled = false;
+        btn.innerText = t("earnConfirmClaim");
+        return;
+    }
+    btn.disabled = !(amt > 0);
+    btn.innerText = earnAction === "withdraw" ? t("earnConfirmWithdraw") : t("earnConfirm");
 }
 
 async function openEarnModal() {
+    if (!requireAgentOwnership()) return;
     if (isWeb3TradeMode()) {
-        showToast(t("toastEarnWeb3Soon"), 3600);
-        return;
-    }
-    if (!currentAgentName && !userAddress) {
+        if (!getWalletProvider()) {
+            showToast(t("earnNeedWallet"), 3600);
+            return;
+        }
+    } else if (!currentAgentName && !userAddress) {
         showToast(t("toastEarnNeedAgent"), 3600);
         return;
     }
+    if (isWeb3TradeMode() && !getEarnProtocol().web3) earnProtocolId = "venus";
+    const tabs = document.getElementById("earnActionTabs");
+    if (tabs) tabs.hidden = isWeb3TradeMode();
+    if (!isWeb3TradeMode()) setEarnAction(earnAction || "deposit");
+    else setEarnAction("deposit");
     renderEarnProtocols();
     syncEarnAssetUi();
     await refreshEarnAvailable();
@@ -3290,7 +5179,780 @@ async function openEarnModal() {
     document.getElementById("earnModal").style.display = "flex";
 }
 
+async function ensureTokenApprove(token, spender, amount) {
+    const c = new ethers.Contract(token, ERC20_MIN_ABI, signer);
+    const allowance = await c.allowance(userAddress, spender);
+    if (allowance.gte(amount)) return null;
+    const tx = await c.approve(spender, ethers.constants.MaxUint256);
+    showToast(`${t("txSent")}: approve…`);
+    await tx.wait(1);
+    return tx.hash;
+}
+
+async function executeVenusEarn(amount, gasBuf) {
+    const market = getEarnProtocol().markets?.[earnAsset];
+    if (!market) throw new Error("Unsupported Venus market");
+
+    if (earnAsset === "BNB") {
+        const value = ethers.utils.parseEther(String(amount));
+        const bal = await signer.getBalance();
+        if (bal.lt(value.add(gasBuf))) {
+            throw new Error(tf("errInsufficient", {
+                token: "BNB",
+                need: amount,
+                have: ethers.utils.formatEther(bal).slice(0, 10)
+            }));
+        }
+        const vToken = new ethers.Contract(market, VENUS_VBNB_ABI, signer);
+        const tx = await vToken.mint({ value });
+        showToast(`${t("txSent")}: ${tx.hash.slice(0, 10)}…`);
+        await tx.wait(1);
+        return tx.hash;
+    }
+
+    if (earnAsset === "USDT") {
+        const usdt = new ethers.Contract(USDT_BSC, ERC20_MIN_ABI, signer);
+        const dec = await usdt.decimals().catch(() => 18);
+        const raw = ethers.utils.parseUnits(String(amount), dec);
+        const bal = await usdt.balanceOf(userAddress);
+        if (bal.lt(raw)) {
+            throw new Error(tf("errInsufficient", {
+                token: "USDT",
+                need: amount,
+                have: ethers.utils.formatUnits(bal, dec).slice(0, 12)
+            }));
+        }
+        const bnbBal = await signer.getBalance();
+        if (bnbBal.lt(gasBuf)) {
+            throw new Error(tf("errNeedGas", { have: ethers.utils.formatEther(bnbBal).slice(0, 10) }));
+        }
+        await ensureTokenApprove(USDT_BSC, market, raw);
+        const vToken = new ethers.Contract(market, VENUS_VTOKEN_ABI, signer);
+        const tx = await vToken.mint(raw);
+        showToast(`${t("txSent")}: ${tx.hash.slice(0, 10)}…`);
+        await tx.wait(1);
+        return tx.hash;
+    }
+    throw new Error("Unsupported asset");
+}
+
+async function executeListaEarn(amount, gasBuf) {
+    if (earnAsset !== "BNB") throw new Error("Lista: BNB only");
+    const value = ethers.utils.parseEther(String(amount));
+    const bal = await signer.getBalance();
+    if (bal.lt(value.add(gasBuf))) {
+        throw new Error(tf("errInsufficient", {
+            token: "BNB",
+            need: amount,
+            have: ethers.utils.formatEther(bal).slice(0, 10)
+        }));
+    }
+    const stake = new ethers.Contract(LISTA_STAKE_MANAGER, LISTA_STAKE_ABI, signer);
+    const tx = await stake.deposit({ value });
+    showToast(`${t("txSent")}: ${tx.hash.slice(0, 10)}…`);
+    await tx.wait(1);
+    return tx.hash;
+}
+
+async function executePancakeLpEarn(amount, gasBuf) {
+    const router = new ethers.Contract(PCS_ROUTER, ROUTER_ABI, signer);
+    const deadline = Math.floor(Date.now() / 1000) + 1200;
+    const slip = 100 - Math.max(1, SWAP_SLIPPAGE); // e.g. 99 => 1%
+
+    if (earnAsset === "BNB") {
+        const total = ethers.utils.parseEther(String(amount));
+        const half = total.div(2);
+        const ethLp = total.sub(half);
+        const bal = await signer.getBalance();
+        if (bal.lt(total.add(gasBuf))) {
+            throw new Error(tf("errInsufficient", {
+                token: "BNB",
+                need: amount,
+                have: ethers.utils.formatEther(bal).slice(0, 10)
+            }));
+        }
+        const usdt = new ethers.Contract(USDT_BSC, ERC20_MIN_ABI, signer);
+        const usdtBefore = await usdt.balanceOf(userAddress);
+        const path = [WBNB, USDT_BSC];
+        const quoted = await router.getAmountsOut(half, path);
+        const minUsdt = quoted[1].mul(slip).div(100);
+        const swapTx = await router.swapExactETHForTokens(minUsdt, path, userAddress, deadline, { value: half });
+        showToast(`${t("txSent")}: swap…`);
+        await swapTx.wait(1);
+
+        const usdtAfter = await usdt.balanceOf(userAddress);
+        const usdtGained = usdtAfter.sub(usdtBefore);
+        if (usdtGained.lte(0)) throw new Error(t("toastEarnFail"));
+        await ensureTokenApprove(USDT_BSC, PCS_ROUTER, usdtGained);
+        const amountTokenMin = usdtGained.mul(slip).div(100);
+        const amountETHMin = ethLp.mul(slip).div(100);
+        const lpTx = await router.addLiquidityETH(
+            USDT_BSC,
+            usdtGained,
+            amountTokenMin,
+            amountETHMin,
+            userAddress,
+            deadline,
+            { value: ethLp }
+        );
+        showToast(`${t("txSent")}: ${lpTx.hash.slice(0, 10)}…`);
+        await lpTx.wait(1);
+        return lpTx.hash;
+    }
+
+    if (earnAsset === "USDT") {
+        const usdt = new ethers.Contract(USDT_BSC, ERC20_MIN_ABI, signer);
+        const dec = await usdt.decimals().catch(() => 18);
+        const total = ethers.utils.parseUnits(String(amount), dec);
+        const half = total.div(2);
+        const usdtLp = total.sub(half);
+        const bal = await usdt.balanceOf(userAddress);
+        if (bal.lt(total)) {
+            throw new Error(tf("errInsufficient", {
+                token: "USDT",
+                need: amount,
+                have: ethers.utils.formatUnits(bal, dec).slice(0, 12)
+            }));
+        }
+        const bnbBal = await signer.getBalance();
+        if (bnbBal.lt(gasBuf.mul(2))) {
+            throw new Error(tf("errNeedGas", { have: ethers.utils.formatEther(bnbBal).slice(0, 10) }));
+        }
+        await ensureTokenApprove(USDT_BSC, PCS_ROUTER, total);
+        const path = [USDT_BSC, WBNB];
+        const quoted = await router.getAmountsOut(half, path);
+        const minBnb = quoted[1].mul(slip).div(100);
+        const swapTx = await router.swapExactTokensForETH(half, minBnb, path, userAddress, deadline);
+        showToast(`${t("txSent")}: swap…`);
+        await swapTx.wait(1);
+
+        const ethBal = await signer.getBalance();
+        // keep gas buffer; use most of remaining for LP (capped by quote)
+        const ethForLp = ethBal.sub(gasBuf);
+        if (ethForLp.lte(0)) throw new Error(tf("errNeedGas", { have: ethers.utils.formatEther(ethBal).slice(0, 10) }));
+        const usdtLeft = await usdt.balanceOf(userAddress);
+        const useUsdt = usdtLeft.lt(usdtLp) ? usdtLeft : usdtLp;
+        if (useUsdt.lte(0)) throw new Error(t("toastEarnFail"));
+        const amountTokenMin = useUsdt.mul(slip).div(100);
+        const amountETHMin = ethForLp.mul(slip).div(100);
+        const lpTx = await router.addLiquidityETH(
+            USDT_BSC,
+            useUsdt,
+            amountTokenMin,
+            amountETHMin,
+            userAddress,
+            deadline,
+            { value: ethForLp }
+        );
+        showToast(`${t("txSent")}: ${lpTx.hash.slice(0, 10)}…`);
+        await lpTx.wait(1);
+        return lpTx.hash;
+    }
+    throw new Error("Unsupported asset");
+}
+
+async function executeWeb3Earn(amount) {
+    const proto = getEarnProtocol();
+    if (!proto.web3) throw new Error(t("toastEarnFail"));
+    await ensureWeb3Signer();
+    const gasBuf = ethers.utils.parseEther("0.0005");
+    if (proto.id === "venus") return executeVenusEarn(amount, gasBuf);
+    if (proto.id === "lista") return executeListaEarn(amount, gasBuf);
+    if (proto.id === "pancake") return executePancakeLpEarn(amount, gasBuf);
+    throw new Error("Unsupported protocol");
+}
+
+function handoffEarnIntent(amount) {
+    const proto = getEarnProtocol();
+    const action = isWeb3TradeMode() ? "deposit" : (earnAction || "deposit");
+    const type = action === "withdraw" ? "earn.withdraw" : action === "claim" ? "earn.claim" : "earn.deposit";
+    const intent = buildAgentIntent(type, {
+        protocol: proto.name,
+        protocolId: proto.id,
+        product: proto.product,
+        asset: earnAsset,
+        amount: action === "claim" ? null : amount,
+        action,
+        mode: "flexible",
+        chain: "BNB Smart Chain",
+        note: proto.note,
+        venues: proto.markets || null
+    });
+    let summary;
+    if (action === "withdraw") {
+        summary = `Withdraw/redeem ${amount} ${earnAsset} from ${proto.name} (${proto.product}) on BNB Smart Chain. Simulate redeem path first; confirm before sign; return tx hash.`;
+    } else if (action === "claim") {
+        summary = `Claim available rewards/yield from ${proto.name} (${proto.product}) for ${earnAsset} on BNB Smart Chain. Simulate claim first; confirm before sign; return tx hash.`;
+    } else {
+        summary = tf("earnSummary", {
+            amount,
+            asset: earnAsset,
+            protocol: proto.name,
+            product: proto.product
+        });
+    }
+    const prompt = openIntentHandoff(`Earn ${action} · ${proto.name}`, intent, summary);
+    navigator.clipboard.writeText(prompt).then(() => showToast(t("toastCopiedPrompt"))).catch(() => {});
+}
+
 document.getElementById("earnBtn")?.addEventListener("click", () => { openEarnModal(); });
+document.querySelectorAll("#earnActionTabs .launch-tab").forEach(tab => {
+    tab.onclick = () => setEarnAction(tab.dataset.earnAction || "deposit");
+});
+
+// ===== AI AGENT TOOLS: Approve / Bridge / Cancel =====
+const AGENT_PERP_ORDERS_KEY = "agentgate_agent_perp_orders_v1";
+let agentPerpOrders = [];
+let approveAction = "approve";
+let cancelMode = "selected";
+let selectedCancelOrderId = null;
+
+const APPROVE_SPENDERS = {
+    pcs: { id: "pcs", name: "PancakeSwap Router V2", address: "0x10ED43C718714eb63d5aA57B78B54704E256024E" },
+    venus: { id: "venus", name: "Venus vUSDT", address: "0xfD5840Cd36d94D7229439859C0112a4185BC0255" }
+};
+
+function loadAgentPerpOrders() {
+    try {
+        const raw = JSON.parse(localStorage.getItem(AGENT_PERP_ORDERS_KEY) || "[]");
+        agentPerpOrders = Array.isArray(raw) ? raw : [];
+    } catch (_) {
+        agentPerpOrders = [];
+    }
+}
+
+function saveAgentPerpOrders() {
+    localStorage.setItem(AGENT_PERP_ORDERS_KEY, JSON.stringify(agentPerpOrders.slice(0, 40)));
+}
+
+function trackAgentPerpOrder(intent) {
+    if (!intent || intent.type !== "perp.open") return;
+    const ot = intent.params?.orderType || "market";
+    if (ot !== "limit" && ot !== "stop") return;
+    loadAgentPerpOrders();
+    agentPerpOrders.unshift({
+        id: `ag_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
+        market: intent.params.market,
+        side: intent.params.side,
+        orderType: ot,
+        sizeUsdt: intent.params.sizeUsdt,
+        leverage: intent.params.leverage,
+        limitPrice: intent.params.limitPrice || null,
+        stopTrigger: intent.params.stopTrigger || null,
+        stopLimitPrice: intent.params.stopLimitPrice || null,
+        createdAt: Date.now(),
+        status: "open"
+    });
+    saveAgentPerpOrders();
+}
+
+function fillApproveTokenSelect() {
+    const sel = document.getElementById("approveToken");
+    if (!sel) return;
+    const tokens = getAllDashTokens().filter(t => !t.native);
+    sel.innerHTML = tokens.map(t => `<option value="${t.id}">${t.symbol} — ${t.name}</option>`).join("");
+}
+
+function syncApproveUi() {
+    document.querySelectorAll("#approveActionTabs .launch-tab").forEach(b => {
+        b.classList.toggle("active", (b.dataset.approveAction || "") === approveAction);
+    });
+    const wrap = document.getElementById("approveAmountWrap");
+    if (wrap) wrap.hidden = approveAction === "revoke";
+    const preset = document.getElementById("approveSpenderPreset")?.value || "pcs";
+    const custom = document.getElementById("approveSpenderCustom");
+    if (custom) custom.hidden = preset !== "custom";
+    const unlimited = document.querySelector('input[name="approveAmtMode"][value="unlimited"]')?.checked;
+    const exact = !unlimited;
+    const amt = document.getElementById("approveAmount");
+    if (amt) amt.hidden = approveAction === "revoke" || !exact;
+    const warn = document.getElementById("approveUnlimitedWarn");
+    if (warn) warn.hidden = approveAction === "revoke" || !unlimited;
+    const btn = document.getElementById("confirmApprove");
+    if (btn) btn.innerText = approveAction === "revoke" ? t("revokeAction") + " → Prompt" : t("approvalsConfirm");
+}
+
+function openApproveModal() {
+    if (isWeb3TradeMode()) {
+        showToast(t("approvalsHint"), 4200);
+        return;
+    }
+    if (!requireAgentOwnership()) return;
+    fillApproveTokenSelect();
+    approveAction = "approve";
+    const exactRadio = document.querySelector('input[name="approveAmtMode"][value="exact"]');
+    if (exactRadio) exactRadio.checked = true;
+    const unlRadio = document.querySelector('input[name="approveAmtMode"][value="unlimited"]');
+    if (unlRadio) unlRadio.checked = false;
+    syncApproveUi();
+    document.getElementById("approveModal").style.display = "flex";
+}
+
+function resolveApproveSpender() {
+    const preset = document.getElementById("approveSpenderPreset")?.value || "pcs";
+    if (preset === "custom") {
+        const raw = document.getElementById("approveSpenderCustom")?.value?.trim() || "";
+        if (!ethers.utils.isAddress(raw)) return null;
+        return { id: "custom", name: "Custom", address: ethers.utils.getAddress(raw) };
+    }
+    return APPROVE_SPENDERS[preset] || APPROVE_SPENDERS.pcs;
+}
+
+function handoffApprove() {
+    const tokenId = document.getElementById("approveToken")?.value;
+    const token = getAllDashTokens().find(t => t.id === tokenId);
+    if (!token || !token.address) {
+        showToast(t("toastNeedSpender"));
+        return;
+    }
+    const spender = resolveApproveSpender();
+    if (!spender) {
+        showToast(t("toastNeedSpender"));
+        return;
+    }
+    const unlimited = document.querySelector('input[name="approveAmtMode"][value="unlimited"]')?.checked;
+    let amount = null;
+    if (approveAction === "approve") {
+        if (!unlimited) {
+            amount = parseFloat(document.getElementById("approveAmount")?.value);
+            if (!(amount > 0)) {
+                showToast(t("toastNeedApproveAmt"));
+                return;
+            }
+        }
+    } else {
+        amount = 0;
+    }
+    const note = document.getElementById("approveNote")?.value?.trim() || "";
+    const type = approveAction === "revoke" ? "token.revoke" : "token.approve";
+    const intent = buildAgentIntent(type, {
+        token: token.symbol,
+        tokenAddress: token.address,
+        decimals: token.decimals,
+        spender: spender.address,
+        spenderName: spender.name,
+        amount,
+        unlimited: approveAction === "approve" && !!unlimited,
+        chain: "BNB Smart Chain",
+        chainId: 56,
+        note: note || null
+    });
+    const summary = approveAction === "revoke"
+        ? `Revoke ${token.symbol} allowance for spender ${spender.name} (${spender.address}) on BNB Smart Chain. Set allowance to 0 after simulate + confirm.`
+        : `Approve ${token.symbol} for spender ${spender.name} (${spender.address}) on BNB Smart Chain. Allowance: ${unlimited ? "UNLIMITED (MaxUint256) — user explicitly selected this; confirm risk before sign" : `exact ${amount}`}. Simulate first; confirm before sign.${note ? " Note: " + note : ""}`;
+    const prompt = openIntentHandoff(`${approveAction === "revoke" ? "Revoke" : "Approve"} · ${token.symbol}`, intent, summary);
+    navigator.clipboard.writeText(prompt).then(() => showToast(t("toastCopiedPrompt"))).catch(() => {});
+    document.getElementById("approveModal").style.display = "none";
+}
+
+function openBridgeModal() {
+    if (isWeb3TradeMode()) {
+        showToast(t("bridgeHint"), 4200);
+        return;
+    }
+    if (!requireAgentOwnership()) return;
+    const dest = document.getElementById("bridgeDest");
+    if (dest && !dest.value) {
+        const addr = userAddress || document.getElementById("agentAddress")?.dataset?.full || "";
+        if (addr) dest.value = addr;
+    }
+    document.getElementById("bridgeModal").style.display = "flex";
+}
+
+function handoffBridge() {
+    const fromChain = document.getElementById("bridgeFromChain")?.value;
+    const toChain = document.getElementById("bridgeToChain")?.value;
+    const token = document.getElementById("bridgeToken")?.value || "USDT";
+    const amount = parseFloat(document.getElementById("bridgeAmount")?.value);
+    const destRaw = document.getElementById("bridgeDest")?.value?.trim()
+        || userAddress
+        || document.getElementById("agentAddress")?.dataset?.full
+        || "";
+    const provider = document.getElementById("bridgeProvider")?.value || "auto";
+    const slippage = parseFloat(document.getElementById("bridgeSlippage")?.value) || 0.5;
+    const note = document.getElementById("bridgeNote")?.value?.trim() || "";
+    if (!(amount > 0)) {
+        showToast(t("toastNeedBridgeAmt"));
+        return;
+    }
+    if (fromChain === toChain) {
+        showToast(t("toastSameChain"));
+        return;
+    }
+    if (destRaw && !ethers.utils.isAddress(destRaw)) {
+        showToast(t("toastBadTokenAddr"));
+        return;
+    }
+    const dest = destRaw ? ethers.utils.getAddress(destRaw) : null;
+    const intent = buildAgentIntent("bridge.transfer", {
+        fromChain,
+        toChain,
+        token,
+        amount,
+        destination: dest,
+        provider,
+        maxSlippagePct: slippage,
+        preferOfficialBridge: true,
+        note: note || null
+    });
+    const summary = `Bridge ${amount} ${token} from ${fromChain} to ${toChain} via ${provider}. Destination: ${dest || "Agent wallet"}. Max slippage ${slippage}%. Use a reputable bridge only; simulate quote/fees first; confirm before sign; return source + destination tx hashes.${note ? " Note: " + note : ""}`;
+    const prompt = openIntentHandoff(`Bridge · ${token} ${fromChain} → ${toChain}`, intent, summary);
+    navigator.clipboard.writeText(prompt).then(() => showToast(t("toastCopiedPrompt"))).catch(() => {});
+    document.getElementById("bridgeModal").style.display = "none";
+}
+
+function setCancelMode(mode) {
+    cancelMode = mode === "manual" ? "manual" : "selected";
+    document.querySelectorAll("#cancelModeTabs .launch-tab").forEach(b => {
+        b.classList.toggle("active", (b.dataset.cancelMode || "") === cancelMode);
+    });
+    const panel = document.getElementById("cancelManualPanel");
+    if (panel) panel.hidden = cancelMode !== "manual";
+}
+
+function renderAgentPendingOrders() {
+    const box = document.getElementById("agentPendingOrders");
+    if (!box) return;
+    loadAgentPerpOrders();
+    const open = agentPerpOrders.filter(o => o.status !== "cancelled");
+    if (!open.length) {
+        box.innerHTML = `<p class="history-empty">${t("noAgentOrders")}</p>`;
+        selectedCancelOrderId = null;
+        return;
+    }
+    if (!selectedCancelOrderId || !open.some(o => o.id === selectedCancelOrderId)) {
+        selectedCancelOrderId = open[0].id;
+    }
+    box.innerHTML = open.map(o => {
+        const px = o.orderType === "stop"
+            ? `trig ${fmtNum(o.stopTrigger, 2)} → ${fmtNum(o.stopLimitPrice, 2)}`
+            : `lim ${fmtNum(o.limitPrice, 2)}`;
+        return `<button type="button" class="manage-token-row mm-row agent-order-pick${o.id === selectedCancelOrderId ? " active" : ""}" data-cancel-id="${o.id}">
+            <div class="manage-token-left">
+                <div>
+                    <strong>${o.side} · ${o.market}</strong>
+                    <span>${o.orderType} · ${px} · $${fmtNum(o.sizeUsdt, 2)}</span>
+                </div>
+            </div>
+        </button>`;
+    }).join("");
+    box.querySelectorAll("[data-cancel-id]").forEach(btn => {
+        btn.onclick = () => {
+            selectedCancelOrderId = btn.dataset.cancelId;
+            renderAgentPendingOrders();
+        };
+    });
+}
+
+function openCancelOrderModal() {
+    if (isWeb3TradeMode()) {
+        showToast(t("cancelHint"), 4200);
+        return;
+    }
+    if (!requireAgentOwnership()) return;
+    setCancelMode("selected");
+    renderAgentPendingOrders();
+    document.getElementById("cancelOrderModal").style.display = "flex";
+}
+
+function handoffCancelOrder() {
+    loadAgentPerpOrders();
+    let target = null;
+    if (cancelMode === "selected") {
+        target = agentPerpOrders.find(o => o.id === selectedCancelOrderId && o.status !== "cancelled");
+        if (!target) {
+            showToast(t("toastNeedCancelOrder"));
+            return;
+        }
+    } else {
+        target = {
+            market: document.getElementById("cancelMarket")?.value || "BTCUSDT",
+            side: document.getElementById("cancelSide")?.value || "Long",
+            orderType: document.getElementById("cancelOrderType")?.value || "limit",
+            limitPrice: parseFloat(document.getElementById("cancelPrice")?.value) || null,
+            stopTrigger: parseFloat(document.getElementById("cancelPrice")?.value) || null,
+            sizeUsdt: null
+        };
+    }
+    const note = document.getElementById("cancelNote")?.value?.trim() || "";
+    const intent = buildAgentIntent("perp.cancel", {
+        market: target.market,
+        side: target.side,
+        orderType: target.orderType,
+        limitPrice: target.limitPrice || null,
+        stopTrigger: target.stopTrigger || null,
+        stopLimitPrice: target.stopLimitPrice || null,
+        sizeUsdt: target.sizeUsdt || null,
+        orderId: target.id || null,
+        note: note || null
+    });
+    const summary = `Cancel hanging ${target.orderType} ${target.side} order on ${target.market}` +
+        (target.limitPrice ? ` at limit ${target.limitPrice}` : "") +
+        (target.stopTrigger ? ` (trigger ${target.stopTrigger})` : "") +
+        `. Simulate cancel first; confirm before submit; return cancel confirmation.${note ? " Note: " + note : ""}`;
+    const prompt = openIntentHandoff(`Cancel · ${target.orderType} ${target.market}`, intent, summary);
+    navigator.clipboard.writeText(prompt).then(() => showToast(t("toastCopiedPrompt"))).catch(() => {});
+    if (target.id) {
+        agentPerpOrders = agentPerpOrders.map(o => o.id === target.id ? { ...o, status: "cancelled" } : o);
+        saveAgentPerpOrders();
+    }
+    document.getElementById("cancelOrderModal").style.display = "none";
+}
+
+document.querySelectorAll("#dashWorkspaceSeg .dash-seg-btn").forEach(btn => {
+    btn.addEventListener("click", () => setDashWorkspace(btn.dataset.dashPanel || "trade"));
+});
+document.getElementById("approveBtn")?.addEventListener("click", () => openApproveModal());
+document.getElementById("bridgeBtn")?.addEventListener("click", () => openBridgeModal());
+document.getElementById("cancelOrderBtn")?.addEventListener("click", () => openCancelOrderModal());
+document.getElementById("closeApprove")?.addEventListener("click", () => { document.getElementById("approveModal").style.display = "none"; });
+document.getElementById("closeBridge")?.addEventListener("click", () => { document.getElementById("bridgeModal").style.display = "none"; });
+document.getElementById("closeCancelOrder")?.addEventListener("click", () => { document.getElementById("cancelOrderModal").style.display = "none"; });
+document.querySelectorAll("#approveActionTabs .launch-tab").forEach(tab => {
+    tab.onclick = () => { approveAction = tab.dataset.approveAction || "approve"; syncApproveUi(); };
+});
+document.getElementById("approveSpenderPreset")?.addEventListener("change", syncApproveUi);
+document.querySelectorAll('input[name="approveAmtMode"]').forEach(r => r.addEventListener("change", syncApproveUi));
+document.getElementById("confirmApprove")?.addEventListener("click", () => handoffApprove());
+document.getElementById("confirmBridge")?.addEventListener("click", () => handoffBridge());
+document.querySelectorAll("#cancelModeTabs .launch-tab").forEach(tab => {
+    tab.onclick = () => setCancelMode(tab.dataset.cancelMode || "selected");
+});
+document.getElementById("confirmCancelOrder")?.addEventListener("click", () => handoffCancelOrder());
+
+// ===== LAUNCHPAD (AI Agent only) =====
+let launchTab = "token";
+let tokenLogoMeta = null;
+let nftImageMeta = null;
+const LAUNCH_EMBED_MAX = 90000; // ~90KB dataURL max in intent
+
+function setLaunchTab(tab) {
+    launchTab = tab === "nft" ? "nft" : "token";
+    document.querySelectorAll("#launchTabs .launch-tab").forEach(b => {
+        b.classList.toggle("active", (b.dataset.launchTab || "") === launchTab);
+    });
+    const tokenPanel = document.getElementById("launchTokenPanel");
+    const nftPanel = document.getElementById("launchNftPanel");
+    if (tokenPanel) {
+        tokenPanel.hidden = launchTab !== "token";
+        tokenPanel.setAttribute("aria-hidden", launchTab !== "token" ? "true" : "false");
+    }
+    if (nftPanel) {
+        nftPanel.hidden = launchTab !== "nft";
+        nftPanel.setAttribute("aria-hidden", launchTab !== "nft" ? "true" : "false");
+    }
+    const btn = document.getElementById("confirmLaunch");
+    if (btn) {
+        btn.innerText = launchTab === "nft"
+            ? (t("launchConfirmNft") || t("launchConfirm"))
+            : (t("launchConfirmToken") || t("launchConfirm"));
+    }
+}
+
+function clearMediaPreview(kind) {
+    if (kind === "token") {
+        tokenLogoMeta = null;
+        const img = document.getElementById("tokenLogoImg");
+        const ph = document.querySelector("#tokenLogoPreview span");
+        if (img) { img.hidden = true; img.removeAttribute("src"); }
+        if (ph) ph.hidden = false;
+        const file = document.getElementById("tokenLogoFile");
+        if (file) file.value = "";
+        const url = document.getElementById("tokenLogoUrl");
+        if (url) url.value = "";
+    } else {
+        nftImageMeta = null;
+        const img = document.getElementById("nftImageImg");
+        const ph = document.querySelector("#nftImagePreview span");
+        if (img) { img.hidden = true; img.removeAttribute("src"); }
+        if (ph) ph.hidden = false;
+        const file = document.getElementById("nftImageFile");
+        if (file) file.value = "";
+        const url = document.getElementById("nftImageUrl");
+        if (url) url.value = "";
+    }
+}
+
+function applyMediaPreview(kind, src, meta) {
+    const img = document.getElementById(kind === "token" ? "tokenLogoImg" : "nftImageImg");
+    const ph = document.querySelector(kind === "token" ? "#tokenLogoPreview span" : "#nftImagePreview span");
+    if (kind === "token") tokenLogoMeta = meta;
+    else nftImageMeta = meta;
+    if (img && src) {
+        img.src = src;
+        img.hidden = false;
+        if (ph) ph.hidden = true;
+    }
+}
+
+function readLaunchFile(file, kind) {
+    if (!file || !file.type.startsWith("image/")) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+        const dataUrl = String(reader.result || "");
+        const meta = {
+            source: "upload",
+            fileName: file.name,
+            mime: file.type,
+            sizeBytes: file.size,
+            dataUrl: dataUrl.length <= LAUNCH_EMBED_MAX ? dataUrl : null,
+            embedded: dataUrl.length <= LAUNCH_EMBED_MAX
+        };
+        applyMediaPreview(kind, dataUrl, meta);
+        if (!meta.embedded) showToast(t("toastLogoTooBig"), 3800);
+    };
+    reader.readAsDataURL(file);
+}
+
+function openLaunchModal() {
+    if (isWeb3TradeMode()) {
+        showToast(t("launchHint"), 4200);
+        return;
+    }
+    if (!requireAgentOwnership()) return;
+    setLaunchTab(launchTab || "token");
+    document.getElementById("launchModal").style.display = "flex";
+}
+
+function buildTokenLaunchIntent() {
+    const name = document.getElementById("tokenName")?.value?.trim() || "";
+    const symbol = (document.getElementById("tokenSymbol")?.value || "").trim().toUpperCase();
+    const decimals = Number(document.getElementById("tokenDecimals")?.value);
+    const supplyRaw = String(document.getElementById("tokenSupply")?.value || "").replace(/,/g, "").trim();
+    const supply = Number(supplyRaw);
+    const description = document.getElementById("tokenDesc")?.value?.trim() || "";
+    const website = document.getElementById("tokenWebsite")?.value?.trim() || "";
+    const twitter = document.getElementById("tokenTwitter")?.value?.trim() || "";
+    const telegram = document.getElementById("tokenTelegram")?.value?.trim() || "";
+    const logoUrl = document.getElementById("tokenLogoUrl")?.value?.trim() || "";
+    if (!name || !symbol) {
+        showToast(t("toastNeedTokenName"));
+        return null;
+    }
+    if (!(supply > 0) || !isFinite(supply)) {
+        showToast(t("toastNeedTokenSupply"));
+        return null;
+    }
+    const logo = tokenLogoMeta
+        ? { ...tokenLogoMeta, url: logoUrl || null }
+        : (logoUrl ? { source: "url", url: logoUrl } : null);
+    return buildAgentIntent("token.launch", {
+        standard: "BEP-20",
+        chain: "BNB Smart Chain",
+        chainId: 56,
+        name,
+        symbol,
+        decimals: Number.isFinite(decimals) ? Math.min(18, Math.max(0, Math.floor(decimals))) : 18,
+        totalSupply: supply,
+        totalSupplyRaw: supplyRaw,
+        description: description || null,
+        social: {
+            website: website || null,
+            twitter: twitter || null,
+            telegram: telegram || null
+        },
+        features: {
+            mintable: !!document.getElementById("tokenMintable")?.checked,
+            burnable: !!document.getElementById("tokenBurnable")?.checked,
+            ownable: !!document.getElementById("tokenOwnable")?.checked
+        },
+        logo,
+        recipient: "agent_wallet",
+        verifyOnBscScan: true
+    });
+}
+
+function buildNftCreateIntent() {
+    const name = document.getElementById("nftName")?.value?.trim() || "";
+    const symbol = (document.getElementById("nftSymbol")?.value || "").trim().toUpperCase();
+    const supply = Number(document.getElementById("nftSupply")?.value);
+    const description = document.getElementById("nftDesc")?.value?.trim() || "";
+    const external = document.getElementById("nftExternal")?.value?.trim() || "";
+    const imageUrl = document.getElementById("nftImageUrl")?.value?.trim() || "";
+    if (!name) {
+        showToast(t("toastNeedNftName"));
+        return null;
+    }
+    const image = nftImageMeta
+        ? { ...nftImageMeta, url: imageUrl || null }
+        : (imageUrl ? { source: "url", url: imageUrl } : null);
+    if (!image) {
+        showToast(t("toastNeedNftImage"));
+        return null;
+    }
+    return buildAgentIntent("nft.create", {
+        standard: "BEP-721",
+        chain: "BNB Smart Chain",
+        chainId: 56,
+        name,
+        symbol: symbol || "AGNFT",
+        mintQuantity: Number.isFinite(supply) && supply > 0 ? Math.floor(supply) : 1,
+        description: description || null,
+        externalUrl: external || null,
+        image,
+        recipient: "agent_wallet",
+        verifyOnBscScan: true
+    });
+}
+
+function handoffLaunch() {
+    if (isWeb3TradeMode()) {
+        showToast(t("launchHint"), 4200);
+        return;
+    }
+    const intent = launchTab === "nft" ? buildNftCreateIntent() : buildTokenLaunchIntent();
+    if (!intent) return;
+    let summary;
+    if (intent.type === "token.launch") {
+        const p = intent.params;
+        summary = `Launch a BEP-20 token on BNB Smart Chain named "${p.name}" (${p.symbol}) with total supply ${p.totalSupplyRaw || p.totalSupply}, decimals ${p.decimals}. ` +
+            `Features: mintable=${p.features.mintable}, burnable=${p.features.burnable}, ownable=${p.features.ownable}. ` +
+            `Mint initial supply to the Agent wallet. ` +
+            (p.logo?.url ? `Logo URL: ${p.logo.url}. ` : (p.logo?.fileName ? `Logo file uploaded: ${p.logo.fileName}${p.logo.embedded ? " (embedded dataUrl in INTENT_JSON)" : " (too large to embed — ask user for IPFS/HTTPS URL)"}. ` : "No logo provided. ")) +
+            (p.description ? `Description: ${p.description}. ` : "") +
+            `Social: website=${p.social.website || "-"}, twitter=${p.social.twitter || "-"}, telegram=${p.social.telegram || "-"}. ` +
+            `Simulate deploy → confirm → deploy → verify on BscScan → return contract address.`;
+    } else {
+        const p = intent.params;
+        summary = `Create a BEP-721 NFT collection on BNB Smart Chain named "${p.name}" (${p.symbol}), mint quantity ${p.mintQuantity} to the Agent wallet. ` +
+            (p.image?.url ? `Image URL: ${p.image.url}. ` : (p.image?.fileName ? `Image uploaded: ${p.image.fileName}${p.image.embedded ? " (embedded)" : " (ask for IPFS/HTTPS)"}. ` : "")) +
+            (p.description ? `Description: ${p.description}. ` : "") +
+            `Simulate → confirm → deploy metadata + contract → return address & tokenIds.`;
+    }
+    const title = intent.type === "token.launch"
+        ? `Launch Token · ${intent.params.symbol}`
+        : `Create NFT · ${intent.params.name}`;
+    const prompt = openIntentHandoff(title, intent, summary);
+    navigator.clipboard.writeText(prompt).then(() => showToast(t("toastCopiedPrompt"))).catch(() => {});
+    document.getElementById("launchModal").style.display = "none";
+}
+
+document.getElementById("launchBtn")?.addEventListener("click", () => openLaunchModal());
+document.getElementById("closeLaunch")?.addEventListener("click", () => {
+    document.getElementById("launchModal").style.display = "none";
+});
+document.querySelectorAll("#launchTabs .launch-tab").forEach(tab => {
+    tab.onclick = () => setLaunchTab(tab.dataset.launchTab || "token");
+});
+document.getElementById("tokenLogoFile")?.addEventListener("change", (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (f) readLaunchFile(f, "token");
+});
+document.getElementById("nftImageFile")?.addEventListener("change", (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (f) readLaunchFile(f, "nft");
+});
+document.getElementById("tokenLogoUrl")?.addEventListener("change", () => {
+    const url = document.getElementById("tokenLogoUrl")?.value?.trim();
+    if (url) applyMediaPreview("token", url, { source: "url", url, fileName: null, mime: null, embedded: false });
+});
+document.getElementById("nftImageUrl")?.addEventListener("change", () => {
+    const url = document.getElementById("nftImageUrl")?.value?.trim();
+    if (url) applyMediaPreview("nft", url, { source: "url", url, fileName: null, mime: null, embedded: false });
+});
+document.getElementById("tokenLogoClear")?.addEventListener("click", () => clearMediaPreview("token"));
+document.getElementById("nftImageClear")?.addEventListener("click", () => clearMediaPreview("nft"));
+document.getElementById("confirmLaunch")?.addEventListener("click", () => handoffLaunch());
 document.getElementById("closeEarn")?.addEventListener("click", () => {
     document.getElementById("earnModal").style.display = "none";
 });
@@ -3308,36 +5970,35 @@ document.querySelectorAll(".earn-asset-btn").forEach(btn => {
 });
 document.getElementById("earnAmount")?.addEventListener("input", syncEarnConfirm);
 document.getElementById("earnMaxBtn")?.addEventListener("click", () => {
-    const avail = document.getElementById("earnAvailable")?.textContent || "0";
+    let avail = parseFloat(document.getElementById("earnAvailable")?.textContent || "0") || 0;
+    if (earnAsset === "BNB" && avail > 0.001) avail = Math.max(0, avail - 0.001);
     const input = document.getElementById("earnAmount");
-    if (input) input.value = avail;
+    if (input) input.value = avail > 0 ? String(Number(avail.toFixed(6))) : "0";
     syncEarnConfirm();
 });
-document.getElementById("confirmEarn")?.addEventListener("click", () => {
+document.getElementById("confirmEarn")?.addEventListener("click", async () => {
     const amount = parseFloat(document.getElementById("earnAmount")?.value);
-    if (!(amount > 0)) {
+    const action = isWeb3TradeMode() ? "deposit" : (earnAction || "deposit");
+    if (action !== "claim" && !(amount > 0)) {
         showToast(t("earnNeedAmount"));
         return;
     }
-    const proto = getEarnProtocol();
-    const intent = buildAgentIntent("earn.deposit", {
-        protocol: proto.name,
-        protocolId: proto.id,
-        product: proto.product,
-        asset: earnAsset,
-        amount,
-        mode: "flexible",
-        chain: "BNB Smart Chain",
-        note: proto.note
-    });
-    const summary = tf("earnSummary", {
-        amount,
-        asset: earnAsset,
-        protocol: proto.name,
-        product: proto.product
-    });
-    const prompt = openIntentHandoff(`Earn · ${proto.name}`, intent, summary);
-    navigator.clipboard.writeText(prompt).then(() => showToast(t("toastCopiedPrompt"))).catch(() => {});
+    if (isWeb3TradeMode()) {
+        try {
+            setLoading(true);
+            const hash = await executeWeb3Earn(amount);
+            document.getElementById("earnModal").style.display = "none";
+            showToast(`${t("toastEarnOk")}: ${String(hash).slice(0, 10)}…`);
+            await refreshPortfolio(userAddress);
+            await refreshEarnAvailable();
+        } catch (err) {
+            showToast(`${t("toastEarnFail")}: ${formatTxError(err)}`);
+        } finally {
+            setLoading(false);
+        }
+        return;
+    }
+    handoffEarnIntent(amount);
     document.getElementById("earnModal").style.display = "none";
 });
 

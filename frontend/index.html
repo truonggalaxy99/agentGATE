@@ -2,13 +2,19 @@
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, maximum-scale=1">
     <title>AgentGate — Agent ID Agentic Wallet</title>
-    <meta name="description" content="AgentGate: Agent ID gated trading for Agentic Wallets on BNB Chain. Swap, Perp, Predict via AI Agent intents with simulate-first safety.">
+    <meta name="description" content="AgentGate: open only your Agent ID, then Swap / Perp / Predict via AI Agent intents with simulate → confirm → execute on BNB Smart Chain.">
+    <link rel="icon" type="image/svg+xml" href="assets/favicon.svg">
+    <link rel="apple-touch-icon" href="assets/agentgate-logo.jpg">
+    <meta property="og:title" content="AgentGate — Agent ID Agentic Wallet">
+    <meta property="og:description" content="AgentGate: Web3 × AI Agent on BNB Smart Chain. Ownership-gated Agent ID. Simulate → confirm → execute.">
+    <meta property="og:image" content="assets/agentgate-logo.jpg">
+    <meta name="theme-color" content="#0B0E11">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="style.css?v=20261125o">
     <script src="config.js"></script>
 </head>
 <body>
@@ -34,19 +40,23 @@
         </div>
 
         <div id="loginSection" class="login-section">
-            <div class="brand-mark">AgentGate</div>
-            <h1 data-i18n-html="loginTitle">BNB Chain<br>AgentGate</h1>
-            <p class="subtitle" id="subtitle" data-i18n="subtitle">Chọn một luồng để bắt đầu — Web3 ví thường hoặc AI Agent (Agent ID).</p>
+            <div class="brand-mark">
+                <img src="assets/favicon.svg" width="28" height="28" alt="" class="brand-logo">
+                <span>AgentGate</span>
+            </div>
+            <h1 data-i18n-html="loginTitle">AgentGate</h1>
+            <p class="subtitle" id="subtitle" data-i18n="subtitle">Chọn một luồng để bắt đầu — Web3 ví thường hoặc AI Agent (Agent ID của bạn).</p>
 
-            <div class="flow-tabs" role="tablist" aria-label="Entry flow">
+            <div class="flow-tabs flow-tabs-3" role="tablist" aria-label="Entry flow">
                 <button type="button" class="flow-tab active" id="flowTabWeb3" data-flow="web3" role="tab" aria-selected="true" data-i18n="flowWeb3">Web3 Wallet</button>
                 <button type="button" class="flow-tab" id="flowTabAgent" data-flow="agent" role="tab" aria-selected="false" data-i18n="flowAgent">AI Agent</button>
+                <button type="button" class="flow-tab" id="flowTabAbout" data-flow="about" role="tab" aria-selected="false" data-i18n="flowAbout">Giới thiệu</button>
             </div>
 
             <div id="flowWeb3Panel" class="flow-panel" role="tabpanel">
                 <div class="login-pills">
                     <span data-i18n="pillWeb3">MetaMask / Binance</span>
-                    <span data-i18n="pillChain">BNB Chain</span>
+                    <span data-i18n="pillChain">BNB Smart Chain</span>
                     <span data-i18n="pillDirect">Ký trực tiếp</span>
                 </div>
                 <p class="flow-desc" data-i18n="flowWeb3Desc">Kết nối ví → số dư → Gửi / Nhận / Swap. Perp & Predict mở Swap on-chain. Earn / DeFi sắp ra mắt.</p>
@@ -66,21 +76,113 @@
                     <span data-i18n="pillIntent">AI Intent</span>
                     <span data-i18n="pillSimulate">Simulate first</span>
                 </div>
-                <p class="flow-desc" data-i18n="flowAgentDesc">Luồng AI Agent: mở bằng name.ai, tạo intent, dán prompt cho AI Agent — simulate trước, bạn confirm mới execute.</p>
-                <div class="input-group">
-                    <input type="text" id="agentInput" placeholder="ví dụ: yourname.ai">
-                    <button id="checkBtn" data-i18n="check">Check</button>
+                <p class="flow-desc" data-i18n="flowAgentDesc">Luồng AI Agent: nhập name.ai → xác minh bằng Binance AI / prompt (không lộ tên/ví) → vào dashboard. Máy này tin 24 giờ; hết hạn mới xác minh lại. Không dùng để tra ví người khác.</p>
+                <div id="agentLoginForm">
+                    <div class="input-group">
+                        <input type="text" id="agentInput" placeholder="ví dụ: yourname.ai">
+                        <button id="checkBtn" data-i18n="check">Check</button>
+                    </div>
+                    <div id="agentWalletChoices" class="wallet-choices" hidden></div>
+                    <div class="login-steps" id="agentSteps">
+                        <div class="login-step"><b>1</b><span data-i18n="loginStep1">Nhập Agent ID (name.ai) của bạn</span></div>
+                        <div class="login-step"><b>2</b><span data-i18n="loginStep2">Mở Binance AI (hoặc copy prompt) → checkIn</span></div>
+                        <div class="login-step"><b>3</b><span data-i18n="loginStep3">Vào dashboard — máy này tin 24 giờ</span></div>
+                    </div>
+                    <p class="login-claim" data-i18n-html="loginClaim">
+                        Chưa có Agent ID?
+                        <a href="https://www.binance.com/en/download" target="_blank" rel="noopener">Claim trong Binance App</a>
+                        (Wallet → banner Agent ID)
+                    </p>
                 </div>
-                <div class="login-steps" id="agentSteps">
-                    <div class="login-step"><b>1</b><span data-i18n="loginStep1">Có Agent ID (name.ai)</span></div>
-                    <div class="login-step"><b>2</b><span data-i18n="loginStep2">Vào dashboard AgentGate</span></div>
-                    <div class="login-step"><b>3</b><span data-i18n="loginStep3">Gửi intent cho AI Agent</span></div>
+                <div id="agentVerifyPanel" class="agent-verify-panel" hidden>
+                    <h3 data-i18n="agentVerifyTitle">Xác minh bằng AI Agent</h3>
+                    <p class="agent-verify-hint" data-i18n="agentVerifyHint">Prompt không chứa name.ai / địa chỉ ví. Khuyến nghị mở Binance AI (prompt đã copy sẵn). Sau checkIn trang tự vào dashboard. Máy này được tin 24 giờ.</p>
+                    <p id="agentVerifyHandle" class="agent-verify-handle"></p>
+                    <textarea id="agentVerifyPrompt" class="agent-verify-prompt" readonly rows="8" spellcheck="false"></textarea>
+                    <div class="agent-verify-actions">
+                        <button type="button" id="openBinanceAiVerify" class="btn-primary" data-i18n="openBinanceAi">Mở Binance AI</button>
+                        <button type="button" id="copyAgentVerifyPrompt" class="btn-secondary" data-i18n="copyPrompt">Copy Prompt</button>
+                        <button type="button" id="confirmAgentVerifyPoll" class="btn-secondary" data-i18n="agentVerifyIConfirmed">Tôi đã confirm</button>
+                    </div>
+                    <div class="agent-verify-actions agent-verify-actions-secondary">
+                        <button type="button" id="verifyOwnerWalletBtn" class="btn-secondary" data-i18n="optionalOwnerWallet">Tuỳ chọn: nối ví chủ</button>
+                        <button type="button" id="cancelAgentVerify" class="btn-secondary" data-i18n="back">Quay lại</button>
+                    </div>
+                    <p id="agentVerifyStatus" class="agent-verify-status" data-i18n="agentVerifyWaiting">Đang chờ checkIn on-chain…</p>
                 </div>
-                <p class="login-claim" data-i18n-html="loginClaim">
-                    Chưa có Agent ID?
-                    <a href="https://www.binance.com/en/download" target="_blank" rel="noopener">Claim trong Binance App</a>
-                    (Wallet → banner Agent ID)
-                </p>
+            </div>
+
+            <div id="flowAboutPanel" class="flow-panel about-panel" role="tabpanel" hidden>
+                <div class="about-hero">
+                    <p class="about-kicker" data-i18n="aboutKicker">Binance Wallet × BNB Chain · Agent ID Hackathon</p>
+                    <h2 class="about-title" data-i18n="aboutTitle">Về AgentGate</h2>
+                    <p class="about-tagline" data-i18n="aboutTagline">Cổng ownership-gated: chỉ Agent ID của bạn mới mở dashboard Web3 × AI Agent trên BNB Smart Chain.</p>
+                </div>
+                <div class="about-metric" id="aboutMetric" aria-live="polite">
+                    <span class="about-metric-label" data-i18n="aboutMetricLabel">Agent ID đã tương tác on-chain</span>
+                    <span class="about-metric-value"><strong id="aboutUniqueAgents" class="js-unique-agents">—</strong></span>
+                </div>
+                <div class="about-body">
+                    <p data-i18n="aboutP1">AgentGate chứng minh bạn sở hữu <em>name.ai</em> bằng checkIn on-chain (Binance AI / prompt riêng tư, hoặc ví chủ). Sau đó mới mở số dư, Swap / Perp / Predict / Earn và công cụ Approve · Bridge · Cancel.</p>
+                    <p data-i18n="aboutP2">Luồng AI Agent luôn <em>simulate → confirm → execute</em>. AgentGate không tự ký, không lưu seed / private key, không đăng nhập Agentic Wallet bằng QR trên web.</p>
+                </div>
+                <ul class="about-points">
+                    <li data-i18n="aboutPoint1">Hai lối vào: Web3 Wallet hoặc AI Agent (Agent ID)</li>
+                    <li data-i18n="aboutPoint2">Trust thiết bị 24 giờ sau khi xác minh; Đăng xuất xoá trust</li>
+                    <li data-i18n="aboutPoint3">Intent on-chain: checkIn · logIntent · recordAction</li>
+                    <li data-i18n="aboutPoint4">Không phải công cụ tra ví người khác theo tên</li>
+                </ul>
+                <div class="about-roadmap">
+                    <h3 class="about-feedback-title" data-i18n="aboutRoadmapTitle">Tầm nhìn</h3>
+                    <p class="about-roadmap-note" data-i18n="aboutRoadmapNote">Hiện có → hướng dài hạn. Tầm nhìn kỹ thuật — không cam kết tự trade / kiếm tiền hộ.</p>
+                    <div class="about-vision-grid" role="table" aria-label="Vision">
+                        <div class="about-vision-col">
+                            <p class="about-vision-head" data-i18n="aboutVisionNow">Hiện có</p>
+                            <ul>
+                                <li data-i18n-html="aboutVisionNow1">Identity gate bằng <code>name.ai</code></li>
+                                <li data-i18n="aboutVisionNow2">Intent → simulate → user confirm → ký</li>
+                                <li data-i18n-html="aboutVisionNow3">Audit on-chain (<code>checkIn</code> / <code>logIntent</code>)</li>
+                                <li data-i18n="aboutVisionNow4">Dual Web3 × Agent</li>
+                            </ul>
+                        </div>
+                        <div class="about-vision-col about-vision-col-next">
+                            <p class="about-vision-head" data-i18n="aboutVisionNext">Tầm nhìn</p>
+                            <ul>
+                                <li data-i18n="aboutVisionNext1">Agent chạy trong permission / hạn mức user đã cấp — ít bước hơn, vẫn có kiểm soát</li>
+                                <li data-i18n="aboutVisionNext2">UX một chạm như CEX (vẫn confirm khi đụng tài sản)</li>
+                                <li data-i18n="aboutVisionNext3">Agent hiểu rủi ro sâu + tuân thủ policy cá nhân</li>
+                                <li data-i18n="aboutVisionNext4">Liquidity / social / distribution riêng</li>
+                                <li class="about-vision-highlight" data-i18n-html="aboutVisionNext5"><b>Triển khai AI như ChatGPT, Grok, Claude ngay trên Dashboard làm việc</b></li>
+                            </ul>
+                        </div>
+                    </div>
+                </div>
+                <p class="about-disclaimer" data-i18n="aboutDisclaimer">Dự án cộng đồng cho hackathon Agent ID — không phải sản phẩm chính thức của Binance / BNB Chain, không được tài trợ hay bảo chứng bởi Binance.</p>
+                <div class="about-links">
+                    <a class="about-link-btn" href="https://bscscan.com/address/0xf61C2A65F66E4a5aFe357C2EC8c3851D396c530e#code" target="_blank" rel="noopener" data-i18n="aboutLinkBsc">Hợp đồng trên BscScan</a>
+                    <a class="about-link-btn" href="https://github.com/truonggalaxy99/agentGATE" target="_blank" rel="noopener" data-i18n="aboutLinkGh">Mã nguồn trên GitHub</a>
+                </div>
+                <div class="about-feedback">
+                    <h3 class="about-feedback-title" data-i18n="aboutFeedbackTitle">Liên hệ / Feedback</h3>
+                    <p class="about-feedback-hint" data-i18n="aboutFeedbackHint">Góp ý sản phẩm hoặc hỏi kỹ thuật — không dùng để đăng nhập ví.</p>
+                    <div class="about-feedback-row">
+                        <a class="about-link-btn" href="https://x.com/toilatruong021" target="_blank" rel="noopener">X · @toilatruong021</a>
+                        <a class="about-link-btn" href="mailto:toilatruonga02@gmail.com">Gmail</a>
+                        <a class="about-link-btn" href="https://t.me/NGTRUONG68" target="_blank" rel="noopener">Telegram · @NGTRUONG68</a>
+                    </div>
+                    <figure class="about-tg-qr">
+                        <img src="assets/telegram-qr.png" width="168" height="168" alt="Telegram QR @NGTRUONG68" loading="lazy">
+                        <figcaption>@NGTRUONG68</figcaption>
+                    </figure>
+                </div>
+                <div class="about-foot">
+                    <span class="about-badge" data-i18n="aboutBadge">DỰ ÁN CỘNG ĐỒNG</span>
+                    <code class="about-addr" title="AgentGate contract">0xf61C…530e</code>
+                </div>
+                <div class="about-cta">
+                    <button type="button" class="btn-primary" id="aboutGoAgent" data-i18n="aboutCtaAgent">Vào AI Agent</button>
+                    <button type="button" class="btn-secondary" id="aboutGoWeb3" data-i18n="aboutCtaWeb3">Vào Web3</button>
+                </div>
             </div>
 
             <div id="result"></div>
@@ -90,11 +192,11 @@
             <div class="dash-brand-bar">
                 <div class="dash-brand-left">
                     <span class="dash-brand-mark" aria-hidden="true">
-                        <svg viewBox="0 0 48 48" width="22" height="22"><circle cx="24" cy="24" r="22" fill="url(#dashAg)"/><defs><linearGradient id="dashAg" x1="0" y1="0" x2="1" y2="1"><stop offset="0%" stop-color="#F0B90B"/><stop offset="100%" stop-color="#0ECB81"/></linearGradient></defs><path d="M15 33V19.5c0-5.2 4-8.5 9-8.5s9 3.3 9 8.5V33" fill="none" stroke="#111" stroke-width="2.6" stroke-linecap="round"/><circle cx="24" cy="22" r="3" fill="#111"/></svg>
+                        <img src="assets/favicon.svg" width="22" height="22" alt="">
                     </span>
                     <div>
                         <strong>AgentGate</strong>
-                        <em id="dashBrandSub">BNB · Agentic Wallet</em>
+                        <em id="dashBrandSub">Agentic Wallet · BNB Smart Chain</em>
                     </div>
                 </div>
                 <div class="dash-brand-right">
@@ -105,30 +207,24 @@
                 </div>
             </div>
 
-            <div class="dash-topbar">
-                <div class="dash-agent-row">
-                    <span id="dashAgentName" class="dash-agent-name">Agent</span>
-                    <span id="dashAgentVerified" class="verified-badge" title="Verified Agent ID" hidden>
-                        <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
-                            <circle cx="12" cy="12" r="11" fill="#1d9bf0"/>
-                            <path d="M7.5 12.5l2.8 2.8 6.2-6.6" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
-                        </svg>
-                    </span>
-                </div>
-                <div class="dash-modes">
-                    <button id="perpBtn" class="mode-btn mode-btn-primary" type="button">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 19V5M4 19h16M8 15l3-4 3 2 4-6"/></svg>
-                        Perp
-                    </button>
-                    <button id="predictBtn" class="mode-btn mode-btn-primary" type="button">
-                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
-                        <span data-i18n="predict">Dự đoán</span>
-                    </button>
-                </div>
-            </div>
-
             <div class="dash-hero">
                 <div class="dash-hero-glow" aria-hidden="true"></div>
+                <div class="dash-hero-top">
+                    <div class="dash-agent-row">
+                        <span id="dashAgentName" class="dash-agent-name">Agent</span>
+                        <span id="dashAgentVerified" class="verified-badge" title="Verified Agent ID" hidden>
+                            <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
+                                <circle cx="12" cy="12" r="11" fill="#1d9bf0"/>
+                                <path d="M7.5 12.5l2.8 2.8 6.2-6.6" fill="none" stroke="#fff" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                        </span>
+                    </div>
+                    <div class="dash-feature-strip agent-only">
+                        <span data-i18n="pillGate">Agent ID gate</span>
+                        <span data-i18n="pillIntent">AI Intent</span>
+                        <span data-i18n="pillSimulate">Simulate first</span>
+                    </div>
+                </div>
                 <div class="dash-label-row">
                     <p class="dash-label" data-i18n="estBalance">Your Estimated Balance</p>
                     <button id="refreshPortfolioBtn" class="eye-btn" type="button" title="Làm mới" aria-label="Làm mới">
@@ -153,52 +249,179 @@
                 </div>
             </div>
 
-            <div class="dash-feature-strip agent-only">
-                <span data-i18n="pillGate">Agent ID gate</span>
-                <span data-i18n="pillIntent">AI Intent</span>
-                <span data-i18n="pillSimulate">Simulate first</span>
+            <p id="agentOwnershipBanner" class="agent-ownership-banner risk-banner agent-only" hidden data-i18n="agentUnverifiedBanner">Chưa chứng minh ownership — bấm Activate để AI Agent gọi checkIn (không cần MetaMask). Địa chỉ ví &amp; số dư chỉ mở sau khi xác minh.</p>
+            <div class="gate-activate-row agent-only">
+                <button id="activateGateBtn" class="gate-activate-btn" type="button" data-i18n="activateGate">Activate AgentGate (on-chain check-in)</button>
+                <button type="button" id="optionalOwnerWalletBtn" class="btn-secondary agent-optional-wallet" data-i18n="optionalOwnerWallet" hidden>Tuỳ chọn: nối ví chủ</button>
+                <span id="gateStatus" class="gate-status">Chưa check-in</span>
             </div>
 
             <section class="dash-howto" id="dashHowTo">
                 <div class="dash-howto-head">
-                    <h4 data-i18n="howtoTitle">Cách dùng AgentGate</h4>
+                    <h4 data-i18n="howtoTitle">Cách dùng AI Agent</h4>
                     <button type="button" id="dismissHowToBtn" class="dash-howto-hide" data-i18n="collapse">Thu gọn</button>
                 </div>
                 <ol class="dash-howto-steps" id="dashHowToSteps"></ol>
                 <p class="dash-howto-note" data-i18n="howtoNote">AgentGate không tự ký. Không phải lời khuyên đầu tư.</p>
             </section>
 
-            <div class="gate-activate-row agent-only">
-                <button id="activateGateBtn" class="gate-activate-btn" type="button" data-i18n="activateGate">Activate AgentGate (on-chain check-in)</button>
-                <span id="gateStatus" class="gate-status">Chưa check-in</span>
-            </div>
+            <section class="dash-section">
+                <div class="dash-section-head">
+                    <h4 data-i18n="walletActions">Ví</h4>
+                </div>
+                <div class="action-buttons">
+                    <button id="sendBtn" class="action-icon-btn" type="button">
+                        <span class="action-ico">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
+                        </span>
+                        <span data-i18n="send">Gửi</span>
+                    </button>
+                    <button id="receiveBtn" class="action-icon-btn" type="button">
+                        <span class="action-ico">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
+                        </span>
+                        <span data-i18n="receive">Nhận</span>
+                    </button>
+                    <button id="swapBtn" class="action-icon-btn" type="button">
+                        <span class="action-ico">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5M8 21H3v-5M21 3l-9 9M3 21l9-9"/></svg>
+                        </span>
+                        <span data-i18n="swap">Swap</span>
+                    </button>
+                    <button id="earnBtn" class="action-icon-btn" type="button">
+                        <span class="action-ico">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18M7 8h8a3 3 0 0 1 0 6H9a3 3 0 0 0 0 6h9"/></svg>
+                        </span>
+                        <span data-i18n="earn">Earn</span>
+                    </button>
+                </div>
+            </section>
 
-            <div class="action-buttons">
-                <button id="sendBtn" class="action-icon-btn" type="button">
-                    <span class="action-ico">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19V5M5 12l7-7 7 7"/></svg>
-                    </span>
-                    <span data-i18n="send">Gửi</span>
-                </button>
-                <button id="receiveBtn" class="action-icon-btn" type="button">
-                    <span class="action-ico">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12l7 7 7-7"/></svg>
-                    </span>
-                    <span data-i18n="receive">Nhận</span>
-                </button>
-                <button id="swapBtn" class="action-icon-btn" type="button">
-                    <span class="action-ico">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 3h5v5M8 21H3v-5M21 3l-9 9M3 21l9-9"/></svg>
-                    </span>
-                    <span data-i18n="swap">Swap</span>
-                </button>
-                <button id="earnBtn" class="action-icon-btn" type="button">
-                    <span class="action-ico">
-                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 3v18M7 8h8a3 3 0 0 1 0 6H9a3 3 0 0 0 0 6h9"/></svg>
-                    </span>
-                    <span data-i18n="earn">Earn</span>
-                </button>
-            </div>
+            <section class="dash-section dash-workspace">
+                <div class="dash-section-head">
+                    <h4 data-i18n="workspaceTitle">Không gian làm việc</h4>
+                </div>
+                <div class="dash-seg dash-seg-about" id="dashWorkspaceSeg" role="tablist">
+                    <button type="button" class="dash-seg-btn active" data-dash-panel="trade" role="tab" aria-selected="true" data-i18n="wsTrade">Trade</button>
+                    <button type="button" class="dash-seg-btn agent-only" data-dash-panel="create" role="tab" aria-selected="false" data-i18n="wsCreate">Create</button>
+                    <button type="button" class="dash-seg-btn agent-only" data-dash-panel="tools" role="tab" aria-selected="false" data-i18n="wsTools">Tools</button>
+                    <button type="button" class="dash-seg-btn" data-dash-panel="about" role="tab" aria-selected="false" data-i18n="wsAbout">Giới thiệu</button>
+                </div>
+
+                <div id="dashPanelTrade" class="dash-panel" data-panel="trade">
+                    <div class="dash-modes">
+                        <button id="perpBtn" class="mode-btn mode-btn-primary" type="button">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 19V5M4 19h16M8 15l3-4 3 2 4-6"/></svg>
+                            Perp
+                        </button>
+                        <button id="predictBtn" class="mode-btn mode-btn-primary" type="button">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+                            <span data-i18n="predict">Dự đoán</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="dashPanelCreate" class="dash-panel agent-only" data-panel="create" hidden>
+                    <div class="dash-modes dash-modes-single">
+                        <button id="launchBtn" class="mode-btn mode-btn-primary" type="button">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 3l2.2 6.6H21l-5.4 3.9 2.1 6.5L12 16.8 6.3 20l2.1-6.5L3 9.6h6.8L12 3z"/></svg>
+                            <span data-i18n="launch">Launch</span>
+                        </button>
+                    </div>
+                    <p class="dash-panel-hint" data-i18n="wsCreateHint">Tạo Token / NFT → prompt cho AI Agent.</p>
+                </div>
+
+                <div id="dashPanelTools" class="dash-panel agent-only" data-panel="tools" hidden>
+                    <div class="agent-tools" id="agentToolsStrip">
+                        <div class="agent-tools-grid">
+                            <button type="button" id="approveBtn" class="agent-tool-btn">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>
+                                <b data-i18n="approvals">Approve</b>
+                                <em data-i18n="approvalsSub">Quyền token</em>
+                            </button>
+                            <button type="button" id="bridgeBtn" class="agent-tool-btn">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 12h16M8 8l-4 4 4 4M16 8l4 4-4 4"/></svg>
+                                <b data-i18n="bridge">Bridge</b>
+                                <em data-i18n="bridgeSub">Chuyển chain</em>
+                            </button>
+                            <button type="button" id="cancelOrderBtn" class="agent-tool-btn">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><path d="M8 12h8"/></svg>
+                                <b data-i18n="cancelOrders">Cancel</b>
+                                <em data-i18n="cancelOrdersSub">Limit / Stop</em>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="dashPanelAbout" class="dash-panel about-panel dash-about-panel" data-panel="about" hidden>
+                    <div class="about-hero">
+                        <p class="about-kicker" data-i18n="aboutKicker">Binance Wallet × BNB Chain · Agent ID Hackathon</p>
+                        <h2 class="about-title" data-i18n="aboutTitle">Về AgentGate</h2>
+                        <p class="about-tagline" data-i18n="aboutTagline">Cổng ownership-gated: chỉ Agent ID của bạn mới mở dashboard Web3 × AI Agent trên BNB Smart Chain.</p>
+                    </div>
+                    <div class="about-metric" aria-live="polite">
+                        <span class="about-metric-label" data-i18n="aboutMetricLabel">Agent ID đã tương tác on-chain</span>
+                        <span class="about-metric-value"><strong class="js-unique-agents">—</strong></span>
+                    </div>
+                    <div class="about-body">
+                        <p data-i18n="aboutP1">AgentGate chứng minh bạn sở hữu name.ai bằng checkIn on-chain (Binance AI / prompt riêng tư, hoặc ví chủ). Sau đó mới mở số dư, Swap / Perp / Predict / Earn và công cụ Approve · Bridge · Cancel.</p>
+                        <p data-i18n="aboutP2">Luồng AI Agent luôn simulate → confirm → execute. AgentGate không tự ký, không lưu seed / private key, không đăng nhập Agentic Wallet bằng QR trên web.</p>
+                    </div>
+                    <ul class="about-points">
+                        <li data-i18n="aboutPoint1">Hai lối vào: Web3 Wallet hoặc AI Agent (Agent ID)</li>
+                        <li data-i18n="aboutPoint2">Trust thiết bị 24 giờ sau khi xác minh; Đăng xuất xoá trust</li>
+                        <li data-i18n="aboutPoint3">Intent on-chain: checkIn · logIntent · recordAction</li>
+                        <li data-i18n="aboutPoint4">Không phải công cụ tra ví người khác theo tên</li>
+                    </ul>
+                    <div class="about-roadmap">
+                        <h3 class="about-feedback-title" data-i18n="aboutRoadmapTitle">Tầm nhìn</h3>
+                        <p class="about-roadmap-note" data-i18n="aboutRoadmapNote">Hiện có → hướng dài hạn. Tầm nhìn kỹ thuật — không cam kết tự trade / kiếm tiền hộ.</p>
+                        <div class="about-vision-grid" role="table" aria-label="Vision">
+                            <div class="about-vision-col">
+                                <p class="about-vision-head" data-i18n="aboutVisionNow">Hiện có</p>
+                                <ul>
+                                    <li data-i18n-html="aboutVisionNow1">Identity gate bằng <code>name.ai</code></li>
+                                    <li data-i18n="aboutVisionNow2">Intent → simulate → user confirm → ký</li>
+                                    <li data-i18n-html="aboutVisionNow3">Audit on-chain (<code>checkIn</code> / <code>logIntent</code>)</li>
+                                    <li data-i18n="aboutVisionNow4">Dual Web3 × Agent</li>
+                                </ul>
+                            </div>
+                            <div class="about-vision-col about-vision-col-next">
+                                <p class="about-vision-head" data-i18n="aboutVisionNext">Tầm nhìn</p>
+                                <ul>
+                                    <li data-i18n="aboutVisionNext1">Agent chạy trong permission / hạn mức user đã cấp — ít bước hơn, vẫn có kiểm soát</li>
+                                    <li data-i18n="aboutVisionNext2">UX một chạm như CEX (vẫn confirm khi đụng tài sản)</li>
+                                    <li data-i18n="aboutVisionNext3">Agent hiểu rủi ro sâu + tuân thủ policy cá nhân</li>
+                                    <li data-i18n="aboutVisionNext4">Liquidity / social / distribution riêng</li>
+                                    <li class="about-vision-highlight" data-i18n-html="aboutVisionNext5"><b>Triển khai AI như ChatGPT, Grok, Claude ngay trên Dashboard làm việc</b></li>
+                                </ul>
+                            </div>
+                        </div>
+                    </div>
+                    <p class="about-disclaimer" data-i18n="aboutDisclaimer">Dự án cộng đồng cho hackathon Agent ID — không phải sản phẩm chính thức của Binance / BNB Chain, không được tài trợ hay bảo chứng bởi Binance.</p>
+                    <div class="about-links">
+                        <a class="about-link-btn" href="https://bscscan.com/address/0xf61C2A65F66E4a5aFe357C2EC8c3851D396c530e#code" target="_blank" rel="noopener" data-i18n="aboutLinkBsc">Hợp đồng trên BscScan</a>
+                        <a class="about-link-btn" href="https://github.com/truonggalaxy99/agentGATE" target="_blank" rel="noopener" data-i18n="aboutLinkGh">Mã nguồn trên GitHub</a>
+                    </div>
+                    <div class="about-feedback">
+                        <h3 class="about-feedback-title" data-i18n="aboutFeedbackTitle">Liên hệ / Feedback</h3>
+                        <p class="about-feedback-hint" data-i18n="aboutFeedbackHint">Góp ý sản phẩm hoặc hỏi kỹ thuật — không dùng để đăng nhập ví.</p>
+                        <div class="about-feedback-row">
+                            <a class="about-link-btn" href="https://x.com/toilatruong021" target="_blank" rel="noopener">X · @toilatruong021</a>
+                            <a class="about-link-btn" href="mailto:toilatruonga02@gmail.com">Gmail</a>
+                            <a class="about-link-btn" href="https://t.me/NGTRUONG68" target="_blank" rel="noopener">Telegram · @NGTRUONG68</a>
+                        </div>
+                        <figure class="about-tg-qr">
+                            <img src="assets/telegram-qr.png" width="168" height="168" alt="Telegram QR @NGTRUONG68" loading="lazy">
+                            <figcaption>@NGTRUONG68</figcaption>
+                        </figure>
+                    </div>
+                    <div class="about-foot">
+                        <span class="about-badge" data-i18n="aboutBadge">DỰ ÁN CỘNG ĐỒNG</span>
+                        <code class="about-addr" title="AgentGate contract">0xf61C…530e</code>
+                    </div>
+                </div>
+            </section>
 
             <div class="market-card">
                 <div class="dash-tabs">
@@ -212,12 +435,34 @@
                 </div>
 
                 <div id="tokenSection">
-                    <div id="tokenList" class="token-list"></div>
-                    <div class="chain-pill">
-                        <img src="https://cryptologos.cc/logos/bnb-bnb-logo.png" width="14" height="14" alt="">
-                        <span data-i18n="bnbMainnet">BNB Chain · Mainnet</span>
-                        <span id="dashNetworkStatus" class="net-dot" title="Network"></span>
+                    <div class="token-toolbar">
+                        <button type="button" id="tokenNetworkBtn" class="token-network-chip" title="BNB Smart Chain">
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                <path d="M4 7h16M7 12h10M10 17h4"/>
+                            </svg>
+                            <span data-i18n="networkChip">Mạng: BNB Smart Chain</span>
+                            <span id="dashNetworkStatus" class="net-dot" title="Network"></span>
+                        </button>
+                        <div class="token-toolbar-actions">
+                            <button type="button" id="sortTokensBtn" class="token-tool-btn" aria-label="Sort tokens" title="Sort">
+                                <svg width="26" height="26" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                    <path d="M3.5 5.5h12" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/>
+                                    <path d="M3.5 12h9" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/>
+                                    <path d="M3.5 18.5h6" stroke="currentColor" stroke-width="2.8" stroke-linecap="round"/>
+                                    <path d="M16.5 9.5l3.2 4.2 3.2-4.2" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                            </button>
+                            <button type="button" id="manageTokensBtn" class="token-tool-btn" aria-label="Manage tokens" title="Manage tokens">
+                                <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+                                    <circle cx="12" cy="4.5" r="2.6"/>
+                                    <circle cx="12" cy="12" r="2.6"/>
+                                    <circle cx="12" cy="19.5" r="2.6"/>
+                                </svg>
+                            </button>
+                        </div>
                     </div>
+                    <div id="tokenList" class="token-list"></div>
+                    <p id="tokenListEmpty" class="token-list-empty" hidden data-i18n="tokensHiddenEmpty">Không có token nào đang hiện. Mở ⋮ để bật lại.</p>
                 </div>
 
                 <div id="nftSection" class="nft-section" style="display:none;">
@@ -331,6 +576,61 @@
         </div>
     </div>
 
+    <!-- Manage tokens (MetaMask-style) -->
+    <div id="manageTokensModal" class="modal" style="display:none;">
+        <div class="modal-content transfer-modal manage-tokens-modal">
+            <div id="manageListView" class="manage-view">
+                <div class="mm-head">
+                    <button type="button" id="closeManageTokens" class="mm-icon-btn" aria-label="Back">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18l-6-6 6-6"/></svg>
+                    </button>
+                    <h3 data-i18n="manageTokensTitle">Quản lý token</h3>
+                    <span class="mm-head-spacer"></span>
+                </div>
+                <div class="manage-tokens-search mm-search">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3-3"/></svg>
+                    <input type="search" id="manageTokenSearch" class="launch-input" data-i18n-placeholder="manageTokenSearchPh" placeholder="Nhập tên hoặc địa chỉ token" autocomplete="off">
+                </div>
+                <button type="button" id="manageNetworkChip" class="token-network-chip mm-network-chip">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M4 7h16M7 12h10M10 17h4"/></svg>
+                    <span data-i18n="networkChip">Mạng: BNB Smart Chain</span>
+                </button>
+                <div id="manageTokenList" class="manage-token-list mm-token-list" role="list"></div>
+                <button type="button" id="openAddCustomToken" class="mm-secondary-btn" data-i18n="addCustomToken">Thêm token tùy chỉnh</button>
+            </div>
+
+            <div id="manageAddView" class="manage-view" hidden>
+                <div class="mm-head">
+                    <button type="button" id="backFromAddToken" class="mm-icon-btn" aria-label="Back">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 18l-6-6 6-6"/></svg>
+                    </button>
+                    <h3 data-i18n="addCustomToken">Thêm token tùy chỉnh</h3>
+                    <button type="button" id="closeAddCustomToken" class="mm-icon-btn" aria-label="Close">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+                    </button>
+                </div>
+                <div class="mm-warn">
+                    <span class="mm-warn-ico" aria-hidden="true">⚠</span>
+                    <p data-i18n-html="customTokenWarn">Bất kỳ ai cũng có thể tạo token, gồm cả phiên bản giả mạo. Hãy kiểm tra địa chỉ hợp đồng trên BscScan trước khi thêm.</p>
+                </div>
+                <label class="transfer-field-label" data-i18n="networkLabel">Mạng</label>
+                <div class="mm-network-field">
+                    <img src="https://cryptologos.cc/logos/bnb-bnb-logo.png" width="18" height="18" alt="">
+                    <span>BNB Smart Chain</span>
+                </div>
+                <label class="transfer-field-label" data-i18n="tokenContract">Địa chỉ hợp đồng của token</label>
+                <input type="text" id="customTokenAddress" class="launch-input" data-i18n-placeholder="tokenContractPh" placeholder="Nhập địa chỉ token" spellcheck="false" autocomplete="off">
+                <div id="customTokenPreview" class="mm-custom-preview" hidden>
+                    <div><span data-i18n="tokenSymbol">Ký hiệu</span><strong id="customTokenSymbol">—</strong></div>
+                    <div><span data-i18n="tokenDecimals">Decimals</span><strong id="customTokenDecimals">—</strong></div>
+                    <div><span data-i18n="tokenName">Tên</span><strong id="customTokenName">—</strong></div>
+                </div>
+                <p id="customTokenStatus" class="mm-custom-status"></p>
+                <button type="button" id="saveCustomToken" class="mm-secondary-btn" data-i18n="saveToken" disabled>Lưu</button>
+            </div>
+        </div>
+    </div>
+
     <!-- Earn Modal (AI Agent intent) -->
     <div id="earnModal" class="modal" style="display:none;">
         <div class="modal-content transfer-modal earn-modal">
@@ -340,8 +640,14 @@
                     <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
                 </button>
             </div>
-            <p class="earn-hint" data-i18n="earnHint">Nạp vào protocol on-chain trên BNB Chain — AI Agent simulate trước, bạn confirm mới execute.</p>
+            <p class="earn-hint" data-i18n="earnHint">Venus / Lista / Pancake LP trên BSC. Web3: ký ví. AI Agent: tạo intent → simulate → confirm.</p>
             <p class="risk-banner" data-i18n="riskEarn">⚠️ Rủi ro: smart contract / depeg / APY thay đổi. Không phải Simple Earn CEX.</p>
+
+            <div class="launch-tabs agent-only" id="earnActionTabs">
+                <button type="button" class="launch-tab active" data-earn-action="deposit" data-i18n="earnDeposit">Deposit</button>
+                <button type="button" class="launch-tab" data-earn-action="withdraw" data-i18n="earnWithdraw">Withdraw</button>
+                <button type="button" class="launch-tab" data-earn-action="claim" data-i18n="earnClaim">Claim</button>
+            </div>
 
             <label class="transfer-field-label" data-i18n="earnProtocol">Protocol</label>
             <div id="earnProtocolList" class="earn-protocol-list" role="listbox"></div>
@@ -363,7 +669,289 @@
             <label class="transfer-field-label" data-i18n="earnProduct">Product</label>
             <p id="earnProductLabel" class="earn-product-label">Flexible</p>
 
-            <button id="confirmEarn" class="transfer-confirm" data-i18n="earnConfirm" disabled>Tạo Earn Intent</button>
+            <button id="confirmEarn" class="transfer-confirm" data-i18n="earnConfirm" disabled>Supply / Intent</button>
+        </div>
+    </div>
+
+    <!-- Approve / Revoke (AI Agent only) -->
+    <div id="approveModal" class="modal" style="display:none;">
+        <div class="modal-content transfer-modal agent-tool-modal">
+            <div class="transfer-header">
+                <h3 data-i18n="approvalsTitle">Approve / Revoke</h3>
+                <button type="button" id="closeApprove" class="transfer-icon-btn" aria-label="Close">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+                </button>
+            </div>
+            <p class="earn-hint" data-i18n="approvalsHint">AI Agent only · quản lý allowance BEP-20 trên BSC trước khi swap/earn/bridge.</p>
+            <p class="risk-banner" data-i18n="riskApprove">⚠️ Approve sai spender = rủi ro mất token. Mặc định Exact amount — chỉ bật Unlimited khi bạn hiểu rõ rủi ro MaxUint256.</p>
+
+            <div class="launch-tabs" id="approveActionTabs">
+                <button type="button" class="launch-tab active" data-approve-action="approve" data-i18n="approveAction">Approve</button>
+                <button type="button" class="launch-tab" data-approve-action="revoke" data-i18n="revokeAction">Revoke</button>
+            </div>
+
+            <label class="transfer-field-label" data-i18n="coin">Coin</label>
+            <select id="approveToken" class="launch-input"></select>
+
+            <label class="transfer-field-label" data-i18n="approveSpender">Spender</label>
+            <select id="approveSpenderPreset" class="launch-input">
+                <option value="pcs" data-i18n="spenderPcs">PancakeSwap Router V2</option>
+                <option value="venus" data-i18n="spenderVenus">Venus vUSDT</option>
+                <option value="custom" data-i18n="spenderCustom">Custom address…</option>
+            </select>
+            <input type="text" id="approveSpenderCustom" class="launch-input" hidden data-i18n-placeholder="spenderCustomPh" placeholder="0x… spender" spellcheck="false">
+
+            <div id="approveAmountWrap">
+                <label class="transfer-field-label" data-i18n="approveAmount">Allowance</label>
+                <div class="launch-checks" style="margin-bottom:8px;">
+                    <label class="launch-check"><input type="radio" name="approveAmtMode" value="exact" checked> <span data-i18n="approveExact">Exact amount</span></label>
+                    <label class="launch-check"><input type="radio" name="approveAmtMode" value="unlimited"> <span data-i18n="approveUnlimited">Unlimited</span></label>
+                </div>
+                <input type="number" id="approveAmount" class="launch-input no-spin" min="0" step="any" placeholder="0.0">
+                <p id="approveUnlimitedWarn" class="risk-banner" hidden data-i18n="riskApproveUnlimited">⚠️ Unlimited = MaxUint256. Spender có thể rút toàn bộ allowance. Chỉ dùng với contract chính thức bạn tin tưởng.</p>
+            </div>
+
+            <label class="transfer-field-label" data-i18n="approveNote">Ghi chú cho Agent</label>
+            <textarea id="approveNote" class="launch-textarea" rows="2" data-i18n-placeholder="approveNotePh" placeholder="vd. Approve USDT cho PCS trước khi swap…"></textarea>
+
+            <button type="button" id="confirmApprove" class="transfer-confirm" data-i18n="approvalsConfirm">Tạo Approve Prompt</button>
+        </div>
+    </div>
+
+    <!-- Bridge (AI Agent only) -->
+    <div id="bridgeModal" class="modal" style="display:none;">
+        <div class="modal-content transfer-modal agent-tool-modal">
+            <div class="transfer-header">
+                <h3 data-i18n="bridgeTitle">Bridge</h3>
+                <button type="button" id="closeBridge" class="transfer-icon-btn" aria-label="Close">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+                </button>
+            </div>
+            <p class="earn-hint" data-i18n="bridgeHint">AI Agent only · tạo intent bridge (simulate → confirm). Nguồn mặc định BSC; đích có thể là chain khác.</p>
+            <p class="risk-banner" data-i18n="riskBridge">⚠️ Bridge có rủi ro finality / sai địa chỉ / bridge scam. Chỉ dùng bridge uy tín (LayerZero / official).</p>
+
+            <div class="launch-grid-2">
+                <div>
+                    <label class="transfer-field-label" data-i18n="bridgeFrom">From chain</label>
+                    <select id="bridgeFromChain" class="launch-input">
+                        <option value="BNB Smart Chain" selected>BNB Smart Chain</option>
+                        <option value="Ethereum">Ethereum</option>
+                        <option value="Arbitrum">Arbitrum</option>
+                        <option value="Base">Base</option>
+                        <option value="opBNB">opBNB</option>
+                    </select>
+                </div>
+                <div>
+                    <label class="transfer-field-label" data-i18n="bridgeTo">To chain</label>
+                    <select id="bridgeToChain" class="launch-input">
+                        <option value="Ethereum" selected>Ethereum</option>
+                        <option value="BNB Smart Chain">BNB Smart Chain</option>
+                        <option value="Arbitrum">Arbitrum</option>
+                        <option value="Base">Base</option>
+                        <option value="opBNB">opBNB</option>
+                    </select>
+                </div>
+            </div>
+
+            <label class="transfer-field-label" data-i18n="bridgeToken">Token</label>
+            <select id="bridgeToken" class="launch-input">
+                <option value="BNB">BNB</option>
+                <option value="USDT" selected>USDT</option>
+                <option value="USDC">USDC</option>
+                <option value="ETH">ETH</option>
+            </select>
+
+            <label class="transfer-field-label" data-i18n="amount">Amount</label>
+            <input type="number" id="bridgeAmount" class="launch-input no-spin" min="0" step="any" placeholder="0.0">
+
+            <label class="transfer-field-label" data-i18n="bridgeDest">Destination address</label>
+            <input type="text" id="bridgeDest" class="launch-input" data-i18n-placeholder="bridgeDestPh" placeholder="0x… (mặc định = Agent wallet)" spellcheck="false">
+
+            <label class="transfer-field-label" data-i18n="bridgeProvider">Bridge provider</label>
+            <select id="bridgeProvider" class="launch-input">
+                <option value="auto" selected>Auto (best official route)</option>
+                <option value="layerzero">LayerZero</option>
+                <option value="cbridge">Celer cBridge</option>
+                <option value="stargate">Stargate</option>
+            </select>
+
+            <label class="transfer-field-label" data-i18n="bridgeSlippage">Max slippage %</label>
+            <input type="number" id="bridgeSlippage" class="launch-input no-spin" min="0.1" max="5" step="0.1" value="0.5">
+
+            <label class="transfer-field-label" data-i18n="approveNote">Ghi chú cho Agent</label>
+            <textarea id="bridgeNote" class="launch-textarea" rows="2" data-i18n-placeholder="bridgeNotePh" placeholder="vd. Bridge USDT BSC → ETH, ưu tiên fee thấp…"></textarea>
+
+            <button type="button" id="confirmBridge" class="transfer-confirm" data-i18n="bridgeConfirm">Tạo Bridge Prompt</button>
+        </div>
+    </div>
+
+    <!-- Cancel Limit / Stop (AI Agent only) -->
+    <div id="cancelOrderModal" class="modal" style="display:none;">
+        <div class="modal-content transfer-modal agent-tool-modal">
+            <div class="transfer-header">
+                <h3 data-i18n="cancelTitle">Cancel Limit / Stop</h3>
+                <button type="button" id="closeCancelOrder" class="transfer-icon-btn" aria-label="Close">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+                </button>
+            </div>
+            <p class="earn-hint" data-i18n="cancelHint">AI Agent only · hủy lệnh Limit / Stop Limit đang treo (perp). Chọn từ danh sách hoặc nhập tay.</p>
+            <p class="risk-banner" data-i18n="riskCancel">⚠️ Hủy nhầm lệnh có thể bỏ bảo vệ TP/SL. Simulate trước khi confirm.</p>
+
+            <label class="transfer-field-label" data-i18n="cancelPending">Lệnh Agent đang theo dõi</label>
+            <div id="agentPendingOrders" class="manage-token-list mm-token-list" style="max-height:180px;margin-bottom:12px;"></div>
+
+            <div class="launch-tabs" id="cancelModeTabs">
+                <button type="button" class="launch-tab active" data-cancel-mode="selected" data-i18n="cancelSelected">Hủy lệnh đã chọn</button>
+                <button type="button" class="launch-tab" data-cancel-mode="manual" data-i18n="cancelManual">Nhập tay</button>
+            </div>
+
+            <div id="cancelManualPanel" class="launch-panel" hidden>
+                <label class="transfer-field-label" data-i18n="cancelMarket">Market</label>
+                <select id="cancelMarket" class="launch-input">
+                    <option value="BTCUSDT">BTCUSDT</option>
+                    <option value="ETHUSDT">ETHUSDT</option>
+                    <option value="BNBUSDT">BNBUSDT</option>
+                    <option value="SOLUSDT">SOLUSDT</option>
+                </select>
+                <div class="launch-grid-2">
+                    <div>
+                        <label class="transfer-field-label" data-i18n="cancelSide">Side</label>
+                        <select id="cancelSide" class="launch-input">
+                            <option value="Long">Long</option>
+                            <option value="Short">Short</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="transfer-field-label" data-i18n="cancelOrderType">Order type</label>
+                        <select id="cancelOrderType" class="launch-input">
+                            <option value="limit">Limit</option>
+                            <option value="stop">Stop Limit</option>
+                            <option value="all">All open</option>
+                        </select>
+                    </div>
+                </div>
+                <label class="transfer-field-label" data-i18n="cancelPrice">Price / trigger (optional)</label>
+                <input type="number" id="cancelPrice" class="launch-input no-spin" min="0" step="any" placeholder="0.00">
+            </div>
+
+            <label class="transfer-field-label" data-i18n="approveNote">Ghi chú cho Agent</label>
+            <textarea id="cancelNote" class="launch-textarea" rows="2" data-i18n-placeholder="cancelNotePh" placeholder="vd. Hủy Stop Limit Long BTC nếu chưa khớp…"></textarea>
+
+            <button type="button" id="confirmCancelOrder" class="transfer-confirm" data-i18n="cancelConfirm">Tạo Cancel Prompt</button>
+        </div>
+    </div>
+
+    <!-- Launchpad (AI Agent only): Token / NFT → prompt -->
+    <div id="launchModal" class="modal" style="display:none;">
+        <div class="modal-content transfer-modal launch-modal">
+            <div class="transfer-header">
+                <h3 data-i18n="launchTitle">Launchpad</h3>
+                <button type="button" id="closeLaunch" class="transfer-icon-btn" aria-label="Close">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+                </button>
+            </div>
+            <p class="earn-hint" data-i18n="launchHint">AI Agent only · điền form như launchpad thật → Launch tạo prompt (simulate → confirm → deploy trên BSC).</p>
+            <p class="risk-banner" data-i18n="riskLaunch">⚠️ Deploy token/NFT tốn gas, rủi ro hợp đồng &amp; thanh khoản. Quyền mint/ownable (nếu bật) thuộc hợp đồng bạn deploy — AgentGate không custodial, không tự ký. Agent phải simulate + bạn confirm trước.</p>
+
+            <div class="launch-tabs" id="launchTabs">
+                <button type="button" class="launch-tab active" data-launch-tab="token" data-i18n="launchTabToken">Create Token</button>
+                <button type="button" class="launch-tab" data-launch-tab="nft" data-i18n="launchTabNft">Create NFT</button>
+            </div>
+
+            <div id="launchTokenPanel" class="launch-panel">
+                <div class="launch-logo-row">
+                    <div class="launch-logo-preview" id="tokenLogoPreview">
+                        <span data-i18n="logoPh">Logo</span>
+                        <img id="tokenLogoImg" alt="" hidden>
+                    </div>
+                    <div class="launch-logo-actions">
+                        <label class="launch-upload-btn">
+                            <input type="file" id="tokenLogoFile" accept="image/png,image/jpeg,image/webp,image/svg+xml" hidden>
+                            <span data-i18n="uploadLogo">Tải logo</span>
+                        </label>
+                        <input type="url" id="tokenLogoUrl" class="launch-input" data-i18n-placeholder="logoUrlPh" placeholder="Hoặc dán URL logo (https://…)">
+                        <button type="button" id="tokenLogoClear" class="launch-clear" data-i18n="clearLogo">Xóa logo</button>
+                    </div>
+                </div>
+
+                <label class="transfer-field-label" data-i18n="tokenName">Tên token</label>
+                <input type="text" id="tokenName" class="launch-input" maxlength="64" data-i18n-placeholder="tokenNamePh" placeholder="vd. AgentGate Coin">
+
+                <div class="launch-grid-2">
+                    <div>
+                        <label class="transfer-field-label" data-i18n="tokenSymbol">Ký hiệu</label>
+                        <input type="text" id="tokenSymbol" class="launch-input" maxlength="12" data-i18n-placeholder="tokenSymbolPh" placeholder="AGT" style="text-transform:uppercase">
+                    </div>
+                    <div>
+                        <label class="transfer-field-label" data-i18n="tokenDecimals">Decimals</label>
+                        <input type="number" id="tokenDecimals" class="launch-input no-spin" min="0" max="18" value="18">
+                    </div>
+                </div>
+
+                <label class="transfer-field-label" data-i18n="tokenSupply">Tổng cung</label>
+                <input type="text" id="tokenSupply" class="launch-input" inputmode="decimal" data-i18n-placeholder="tokenSupplyPh" placeholder="1000000000">
+
+                <label class="transfer-field-label" data-i18n="tokenDesc">Mô tả</label>
+                <textarea id="tokenDesc" class="launch-textarea" rows="3" maxlength="500" data-i18n-placeholder="tokenDescPh" placeholder="Mô tả ngắn về token, utility, cộng đồng…"></textarea>
+
+                <div class="launch-grid-2">
+                    <div>
+                        <label class="transfer-field-label" data-i18n="tokenWebsite">Website</label>
+                        <input type="url" id="tokenWebsite" class="launch-input" placeholder="https://">
+                    </div>
+                    <div>
+                        <label class="transfer-field-label" data-i18n="tokenTwitter">Twitter / X</label>
+                        <input type="text" id="tokenTwitter" class="launch-input" placeholder="@handle">
+                    </div>
+                </div>
+                <label class="transfer-field-label" data-i18n="tokenTelegram">Telegram</label>
+                <input type="text" id="tokenTelegram" class="launch-input" placeholder="t.me/…">
+
+                <div class="launch-checks">
+                    <label class="launch-check"><input type="checkbox" id="tokenMintable" checked> <span data-i18n="tokenMintable">Mintable</span></label>
+                    <label class="launch-check"><input type="checkbox" id="tokenBurnable" checked> <span data-i18n="tokenBurnable">Burnable</span></label>
+                    <label class="launch-check"><input type="checkbox" id="tokenOwnable" checked> <span data-i18n="tokenOwnable">Ownable</span></label>
+                </div>
+            </div>
+
+            <div id="launchNftPanel" class="launch-panel" hidden>
+                <div class="launch-logo-row">
+                    <div class="launch-logo-preview launch-logo-preview--nft" id="nftImagePreview">
+                        <span data-i18n="nftImagePh">Ảnh NFT</span>
+                        <img id="nftImageImg" alt="" hidden>
+                    </div>
+                    <div class="launch-logo-actions">
+                        <label class="launch-upload-btn">
+                            <input type="file" id="nftImageFile" accept="image/png,image/jpeg,image/webp,image/gif" hidden>
+                            <span data-i18n="uploadNft">Tải ảnh</span>
+                        </label>
+                        <input type="url" id="nftImageUrl" class="launch-input" data-i18n-placeholder="nftUrlPh" placeholder="Hoặc dán URL ảnh / IPFS">
+                        <button type="button" id="nftImageClear" class="launch-clear" data-i18n="clearLogo">Xóa ảnh</button>
+                    </div>
+                </div>
+
+                <label class="transfer-field-label" data-i18n="nftName">Tên NFT / collection</label>
+                <input type="text" id="nftName" class="launch-input" maxlength="64" data-i18n-placeholder="nftNamePh" placeholder="vd. AgentGate Pass">
+
+                <div class="launch-grid-2">
+                    <div>
+                        <label class="transfer-field-label" data-i18n="nftSymbol">Symbol</label>
+                        <input type="text" id="nftSymbol" class="launch-input" maxlength="12" placeholder="AGP" style="text-transform:uppercase">
+                    </div>
+                    <div>
+                        <label class="transfer-field-label" data-i18n="nftSupply">Số lượng mint</label>
+                        <input type="number" id="nftSupply" class="launch-input no-spin" min="1" max="10000" value="1">
+                    </div>
+                </div>
+
+                <label class="transfer-field-label" data-i18n="nftDesc">Mô tả</label>
+                <textarea id="nftDesc" class="launch-textarea" rows="3" maxlength="500" data-i18n-placeholder="nftDescPh" placeholder="Mô tả NFT, utility, quyền lợi Agent ID…"></textarea>
+
+                <label class="transfer-field-label" data-i18n="nftExternal">Link ngoài (optional)</label>
+                <input type="url" id="nftExternal" class="launch-input" placeholder="https://">
+            </div>
+
+            <button id="confirmLaunch" class="transfer-confirm" data-i18n="launchConfirm">Launch → tạo Prompt</button>
         </div>
     </div>
 
@@ -455,38 +1043,44 @@
         </div>
     </div>
 
-    <div id="perpPage" class="perp-page" style="display:none;">
-        <div class="perp-topbar">
-            <div class="perp-pair-title">
-                <img id="currentPairIcon" class="perp-pair-icon" src="https://cryptologos.cc/logos/bitcoin-btc-logo.png" alt="">
-                <div>
-                    <div class="perp-pair-row">
-                        <strong id="currentPair">BTCUSDT</strong>
-                        <span class="perp-badge">Perp</span>
-                        <span class="perp-badge agent">AI Agent</span>
-                    </div>
-                    <b id="lastPrice" class="perp-last">--</b>
-                </div>
-            </div>
-            <div class="perp-stats">
-                <div><span>Mark</span><b id="markPrice">--</b></div>
-                <div><span>Index</span><b id="oraclePrice">--</b></div>
-                <div><span>24h Change</span><b id="change24h">--</b></div>
-                <div><span>Funding</span><b id="fundingRate">--</b></div>
-                <div><span>24h Volume</span><b id="volume24h">--</b></div>
-                <div><span>Open Interest</span><b id="openInterest">--</b></div>
-            </div>
+    <div id="perpPage" class="perp-page" data-perp-pane="markets" style="display:none;">
+        <div class="perp-mobile-bar">
+            <button type="button" id="perpBackPane" class="perp-back-btn" aria-label="Back">←</button>
+            <strong id="perpPaneTitle" data-i18n="perpMarkets">Markets</strong>
             <button id="closePerpPage" class="perp-close" data-i18n="close">Đóng</button>
         </div>
-        <p class="risk-banner perp-risk" data-i18n="perpRisk">⚠️ Perp có rủi ro thanh lý. AgentGate không tự ký — AI Agent simulate trước, bạn confirm mới execute.</p>
+        <nav class="perp-pane-tabs" aria-label="Perp windows">
+            <button type="button" class="perp-pane-tab active" data-pane="markets" data-i18n="perpMarkets">Markets</button>
+            <button type="button" class="perp-pane-tab" data-pane="chart" data-i18n="perpChart">Chart</button>
+            <button type="button" class="perp-pane-tab" data-pane="trade" data-i18n="perpTrade">Trade</button>
+        </nav>
+
+        <div id="perpPairSheet" class="perp-pair-sheet" hidden>
+            <button type="button" class="perp-pair-sheet-backdrop" id="perpPairSheetBackdrop" aria-label="Close"></button>
+            <div class="perp-pair-sheet-panel" role="dialog" aria-modal="true" aria-label="Select pair">
+                <div class="perp-pair-sheet-head">
+                    <strong data-i18n="pickPair">Chọn cặp</strong>
+                    <button type="button" id="closePerpPairSheet" class="transfer-icon-btn" aria-label="Close">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 6l12 12M18 6L6 18"/></svg>
+                    </button>
+                </div>
+                <div id="perpPairSheetList" class="perp-pair-sheet-list"></div>
+            </div>
+        </div>
 
         <div class="perp-main">
-            <div class="perp-pairs">
+            <!-- Window 1: Markets -->
+            <section class="perp-pane perp-pane-markets perp-pairs" data-pane="markets">
+                <div class="perp-markets-head">
+                    <h3 data-i18n="perpMarketsTitle">Hợp đồng vĩnh cửu</h3>
+                    <input type="search" id="perpMarketSearch" class="perp-market-search" data-i18n-placeholder="perpSearchPh" placeholder="Tìm cặp…">
+                </div>
                 <div class="perp-tabs">
                     <button type="button" class="perp-tab" data-perp-tab="tokens">Tokens</button>
                     <button type="button" class="perp-tab active" data-perp-tab="perps">Perps</button>
                     <button type="button" class="perp-tab" data-perp-tab="follows">Follows</button>
                 </div>
+                <div class="perp-markets-cols"><span data-i18n="perpColSym">Mã / Lev</span><span data-i18n="perpColPrice">Giá / 24h</span></div>
                 <div id="perpMarketList" class="perp-market-list">
                     <div class="pair-item active" data-pair="BTCUSDT" data-lev="40" data-icon="https://cryptologos.cc/logos/bitcoin-btc-logo.png">
                         <div class="m-left">
@@ -529,91 +1123,153 @@
                         </div>
                     </div>
                 </div>
-            </div>
+            </section>
 
-            <div class="perp-center">
-                <div class="tf-row" id="tfRow">
-                    <button class="tf-btn" data-tf="1m">1m</button>
-                    <button class="tf-btn" data-tf="5m">5m</button>
-                    <button class="tf-btn" data-tf="15m">15m</button>
-                    <button class="tf-btn active" data-tf="1h">1h</button>
-                    <button class="tf-btn" data-tf="4h">4h</button>
-                    <button class="tf-btn" data-tf="1d">1d</button>
-                </div>
-                <div id="chartContainer" class="perp-chart"></div>
-            </div>
-
-            <aside class="perp-ob">
-                <div class="ob-tabs"><button type="button" class="ob-tab active">Order Book</button></div>
-                <div class="ob-header"><span>Price (USDT)</span><span>Size</span><span>Sum</span></div>
-                <div id="obAsks" class="ob-asks"></div>
-                <div class="ob-spread"><span id="obMidPrice">--</span> · Spread <span id="obSpread">--</span></div>
-                <div id="obBids" class="ob-bids"></div>
-            </aside>
-
-            <aside class="perp-trade">
-                <div class="perp-margin-row">
-                    <div class="perp-seg" id="marginModeSeg">
-                        <button type="button" class="perp-seg-btn active" data-margin="Cross">Cross</button>
-                        <button type="button" class="perp-seg-btn" data-margin="Isolated">Isolated</button>
+            <!-- Window 2: Chart -->
+            <section class="perp-pane perp-pane-chart" data-pane="chart">
+                <div class="perp-topbar">
+                    <div class="perp-topbar-main">
+                        <button type="button" id="perpPairPickerBtn" class="perp-pair-title perp-pair-picker" aria-haspopup="dialog" aria-controls="perpPairSheet" title="Chọn cặp">
+                            <img id="currentPairIcon" class="perp-pair-icon" src="https://cryptologos.cc/logos/bitcoin-btc-logo.png" alt="">
+                            <div>
+                                <div class="perp-pair-row">
+                                    <strong id="currentPair">BTCUSDT</strong>
+                                    <span class="perp-badge">Perp</span>
+                                    <span class="perp-badge agent">AI Agent</span>
+                                    <svg class="perp-pair-caret" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M6 9l6 6 6-6"/></svg>
+                                </div>
+                                <b id="lastPrice" class="perp-last">--</b>
+                            </div>
+                        </button>
                     </div>
-                    <button type="button" class="perp-lev-btn" id="perpLevBtn"><span id="levValue">10</span>x</button>
-                </div>
-                <div class="perp-order-types" id="perpOrderTypes">
-                    <button type="button" class="perp-otype active" data-otype="market">Market</button>
-                    <button type="button" class="perp-otype" data-otype="limit">Limit</button>
-                    <button type="button" class="perp-otype" data-otype="stop">Stop Limit</button>
-                </div>
-                <div class="perp-agent-note" data-i18n-html="perpAgentNote">Lệnh → <b>AI Agent</b> (simulate → confirm → execute)</div>
-                <div class="side-tabs">
-                    <button id="longTab" class="side-long active">Long</button>
-                    <button id="shortTab" class="side-short">Short</button>
-                </div>
-                <label data-i18n="sizeUsdt">Size (USDT)</label>
-                <input type="number" id="perpSize" class="no-spin" placeholder="0.00">
-                <div class="perp-quick-size">
-                    <button type="button" class="perp-chip" data-size="10">10</button>
-                    <button type="button" class="perp-chip" data-size="25">25</button>
-                    <button type="button" class="perp-chip" data-size="50">50</button>
-                    <button type="button" class="perp-chip" data-size="100">100</button>
-                </div>
-                <label data-i18n="leverage">Leverage</label>
-                <input type="range" id="leverageSlider" class="lev-slider" min="1" max="50" value="10">
-                <div class="tpsl-row">
-                    <div>
-                        <label data-i18n="takeProfit">Take Profit</label>
-                        <input type="number" id="tpPrice" class="no-spin" placeholder="TP">
-                    </div>
-                    <div>
-                        <label data-i18n="stopLoss">Stop Loss</label>
-                        <input type="number" id="slPrice" class="no-spin" placeholder="SL">
+                    <div class="perp-stats">
+                        <div><span>Mark</span><b id="markPrice">--</b></div>
+                        <div><span>Index</span><b id="oraclePrice">--</b></div>
+                        <div><span>24h Change</span><b id="change24h">--</b></div>
+                        <div><span>Funding</span><b id="fundingRate">--</b></div>
+                        <div><span>24h Volume</span><b id="volume24h">--</b></div>
+                        <div><span>Open Interest</span><b id="openInterest">--</b></div>
                     </div>
                 </div>
-                <div class="perp-quick-size perp-tpsl-chips">
-                    <button type="button" class="perp-chip" data-tp-pct="1">TP +1%</button>
-                    <button type="button" class="perp-chip" data-tp-pct="2">TP +2%</button>
-                    <button type="button" class="perp-chip" data-sl-pct="1">SL −1%</button>
-                    <button type="button" class="perp-chip" data-sl-pct="2">SL −2%</button>
+                <p class="risk-banner perp-risk" data-i18n="perpRisk">⚠️ Perp có rủi ro thanh lý. AgentGate không tự ký — AI Agent simulate trước, bạn confirm mới execute.</p>
+                <div class="perp-chart-body">
+                    <div class="perp-center">
+                        <div class="tf-row" id="tfRow">
+                            <button class="tf-btn" data-tf="1m">1m</button>
+                            <button class="tf-btn" data-tf="5m">5m</button>
+                            <button class="tf-btn" data-tf="15m">15m</button>
+                            <button class="tf-btn active" data-tf="1h">1h</button>
+                            <button class="tf-btn" data-tf="4h">4h</button>
+                            <button class="tf-btn" data-tf="1d">1d</button>
+                        </div>
+                        <div id="chartContainer" class="perp-chart"></div>
+                    </div>
+                    <aside class="perp-ob">
+                        <div class="ob-tabs"><button type="button" class="ob-tab active">Order Book</button></div>
+                        <div class="ob-header"><span>Price (USDT)</span><span>Size</span><span>Sum</span></div>
+                        <div id="obAsks" class="ob-asks"></div>
+                        <div class="ob-spread"><span id="obMidPrice">--</span> · Spread <span id="obSpread">--</span></div>
+                        <div id="obBids" class="ob-bids"></div>
+                    </aside>
                 </div>
-                <div class="perp-preview" id="perpPreview">
-                    <div><span>Notional</span><b id="prevNotional">--</b></div>
-                    <div><span>Margin</span><b id="prevMargin">--</b></div>
-                    <div><span>Est. Liq</span><b id="prevLiq">--</b></div>
+                <div class="perp-chart-actions">
+                    <button type="button" id="perpGoTradeLong" class="open-long" data-i18n="perpOpenLong">Mở Long</button>
+                    <button type="button" id="perpGoTradeShort" class="open-short" data-i18n="perpOpenShort">Mở Short</button>
                 </div>
-                <button type="button" id="askAiPerp" class="ai-ask-btn agent-only" data-i18n="askAi">Hỏi AI Advisor</button>
-                <button id="openPerp" class="open-long" data-i18n="sendLong">Gửi Long cho AI Agent</button>
-                <button type="button" id="copyPerpIntent" class="perp-secondary-btn agent-only" data-i18n="copyIntent">Copy Intent JSON</button>
-            </aside>
-        </div>
+            </section>
 
-        <div class="perp-bottom">
-            <div class="perp-bottom-tabs">
-                <button type="button" class="perp-btab active">Positions</button>
-                <button type="button" class="perp-btab">Open Orders</button>
-                <button type="button" class="perp-btab">Order History</button>
-                <button type="button" class="perp-btab">Trade History</button>
-            </div>
-            <div class="perp-bottom-empty" id="perpPositionsEmpty" data-i18n="positionsEmpty">Chưa có vị thế — lệnh Perp đi qua AI Agent intent (demo).</div>
+            <!-- Window 3: Trade -->
+            <section class="perp-pane perp-pane-trade" data-pane="trade">
+                <aside class="perp-trade">
+                    <div class="perp-trade-pairline">
+                        <strong id="perpTradePairLabel">BTCUSDT</strong>
+                        <span class="perp-badge">Perp</span>
+                    </div>
+                    <div class="perp-margin-row">
+                        <div class="perp-seg" id="marginModeSeg">
+                            <button type="button" class="perp-seg-btn active" data-margin="Cross">Cross</button>
+                            <button type="button" class="perp-seg-btn" data-margin="Isolated">Isolated</button>
+                        </div>
+                        <button type="button" class="perp-lev-btn" id="perpLevBtn"><span id="levValue">10</span>x</button>
+                    </div>
+                    <div class="perp-order-types" id="perpOrderTypes">
+                        <button type="button" class="perp-otype active" data-otype="market">Market</button>
+                        <button type="button" class="perp-otype" data-otype="limit">Limit</button>
+                        <button type="button" class="perp-otype" data-otype="stop">Stop Limit</button>
+                    </div>
+                    <div id="perpLimitFields" class="perp-price-fields" hidden>
+                        <label data-i18n="limitPrice">Limit price</label>
+                        <div class="transfer-amount">
+                            <input type="number" id="perpLimitPrice" class="no-spin" placeholder="0.00" step="any" min="0">
+                            <span class="transfer-amount-unit">USDT</span>
+                            <button type="button" id="perpLimitMarkBtn" class="transfer-max" data-i18n="useMark">Mark</button>
+                        </div>
+                    </div>
+                    <div id="perpStopFields" class="perp-price-fields" hidden>
+                        <label data-i18n="stopTrigger">Stop trigger</label>
+                        <div class="transfer-amount">
+                            <input type="number" id="perpStopTrigger" class="no-spin" placeholder="0.00" step="any" min="0">
+                            <span class="transfer-amount-unit">USDT</span>
+                            <button type="button" id="perpStopMarkBtn" class="transfer-max" data-i18n="useMark">Mark</button>
+                        </div>
+                        <label data-i18n="stopLimitPrice">Stop limit price</label>
+                        <div class="transfer-amount">
+                            <input type="number" id="perpStopLimitPrice" class="no-spin" placeholder="0.00" step="any" min="0">
+                            <span class="transfer-amount-unit">USDT</span>
+                        </div>
+                    </div>
+                    <div class="perp-agent-note" data-i18n-html="perpAgentNote">Lệnh → <b>AI Agent</b> (simulate → confirm → execute)</div>
+                    <div class="side-tabs">
+                        <button id="longTab" class="side-long active">Long</button>
+                        <button id="shortTab" class="side-short">Short</button>
+                    </div>
+                    <label data-i18n="sizeUsdt">Size (USDT)</label>
+                    <input type="number" id="perpSize" class="no-spin" placeholder="0.00">
+                    <div class="perp-quick-size">
+                        <button type="button" class="perp-chip" data-size="10">10</button>
+                        <button type="button" class="perp-chip" data-size="25">25</button>
+                        <button type="button" class="perp-chip" data-size="50">50</button>
+                        <button type="button" class="perp-chip" data-size="100">100</button>
+                    </div>
+                    <label data-i18n="leverage">Leverage</label>
+                    <input type="range" id="leverageSlider" class="lev-slider" min="1" max="50" value="10">
+                    <div class="tpsl-row">
+                        <div>
+                            <label data-i18n="takeProfit">Take Profit</label>
+                            <input type="number" id="tpPrice" class="no-spin" placeholder="TP">
+                        </div>
+                        <div>
+                            <label data-i18n="stopLoss">Stop Loss</label>
+                            <input type="number" id="slPrice" class="no-spin" placeholder="SL">
+                        </div>
+                    </div>
+                    <div class="perp-quick-size perp-tpsl-chips">
+                        <button type="button" class="perp-chip" data-tp-pct="1">TP +1%</button>
+                        <button type="button" class="perp-chip" data-tp-pct="2">TP +2%</button>
+                        <button type="button" class="perp-chip" data-sl-pct="1">SL −1%</button>
+                        <button type="button" class="perp-chip" data-sl-pct="2">SL −2%</button>
+                    </div>
+                    <div class="perp-preview" id="perpPreview">
+                        <div><span>Notional</span><b id="prevNotional">--</b></div>
+                        <div><span>Margin</span><b id="prevMargin">--</b></div>
+                        <div><span>Est. Liq</span><b id="prevLiq">--</b></div>
+                    </div>
+                    <button type="button" id="askAiPerp" class="ai-ask-btn agent-only" data-i18n="askAi">Hỏi AI Advisor</button>
+                    <button id="openPerp" class="open-long" data-i18n="sendLong">Gửi Long cho AI Agent</button>
+                    <button type="button" id="copyPerpIntent" class="perp-secondary-btn agent-only" data-i18n="copyIntent">Copy Intent JSON</button>
+                </aside>
+                <div class="perp-bottom">
+                    <div class="perp-bottom-tabs">
+                        <button type="button" class="perp-btab active" data-perp-panel="positions">Positions</button>
+                        <button type="button" class="perp-btab" data-perp-panel="orders">Open Orders</button>
+                        <button type="button" class="perp-btab" data-perp-panel="history">Order History</button>
+                        <button type="button" class="perp-btab" data-perp-panel="trades">Trade History</button>
+                    </div>
+                    <div class="perp-bottom-empty" id="perpPositionsEmpty" data-i18n="positionsEmpty">Chưa có vị thế — lệnh Perp đi qua AI Agent intent (demo).</div>
+                    <div id="perpOpenOrders" class="perp-orders-list" hidden></div>
+                    <div class="perp-bottom-empty" id="perpHistoryEmpty" hidden data-i18n="perpHistoryEmpty">Chưa có lịch sử lệnh.</div>
+                </div>
+            </section>
         </div>
 
         <div class="pm-ai-float agent-only" id="perpAiFloat">
@@ -842,6 +1498,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="app.js?v=20261119aa"></script>
+    <script src="app.js?v=20261125o"></script>
 </body>
 </html>
