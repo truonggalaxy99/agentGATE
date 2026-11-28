@@ -14,11 +14,11 @@
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20261125o">
+    <link rel="stylesheet" href="style.css?v=20261128w">
     <script src="config.js"></script>
 </head>
 <body>
-    <div class="app-shell">
+    <div class="app-shell has-tier-rail">
         <div id="settingsWrap" class="shell-settings-wrap dash-settings-wrap">
             <button type="button" id="dashSettingsBtn" class="dash-settings-btn" aria-label="Settings" aria-expanded="false" aria-controls="dashSettingsPanel" title="Settings">
                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9c.2.6.7 1 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>
@@ -38,6 +38,31 @@
                 </div>
             </div>
         </div>
+
+        <div id="loginLayout" class="stage-layout">
+        <aside class="tier-rail tier-rail-showcase" id="loginTierRail" aria-label="AgentGate Proof NFT showcase">
+            <div class="nft-stack" id="loginNftStack" role="button" tabindex="0" aria-expanded="false" title="Bấm để xòe bài">
+                <div class="nft-fan">
+                    <article class="nft-fan-card tier-bronze" style="--fan:0">
+                        <div class="nft-fan-thickness" aria-hidden="true"></div>
+                        <div class="nft-plate"><div class="nft-sheen"></div><div class="nft-hex"></div><div class="nft-top"><span class="nft-chip">BRONZE</span><span class="nft-motto">PASS</span></div><p class="nft-handle">bronze</p><p class="nft-domain">agentgate</p><div class="nft-foot"><span class="nft-brand">AgentGate</span><span class="nft-glyph">⬡</span></div></div>
+                    </article>
+                    <article class="nft-fan-card tier-silver" style="--fan:1">
+                        <div class="nft-fan-thickness" aria-hidden="true"></div>
+                        <div class="nft-plate"><div class="nft-sheen"></div><div class="nft-hex"></div><div class="nft-top"><span class="nft-chip">SILVER</span><span class="nft-motto">PASS</span></div><p class="nft-handle">silver</p><p class="nft-domain">agentgate</p><div class="nft-foot"><span class="nft-brand">AgentGate</span><span class="nft-glyph">⬡</span></div></div>
+                    </article>
+                    <article class="nft-fan-card tier-gold" style="--fan:2">
+                        <div class="nft-fan-thickness" aria-hidden="true"></div>
+                        <div class="nft-plate"><div class="nft-sheen"></div><div class="nft-hex"></div><div class="nft-top"><span class="nft-chip">GOLD</span><span class="nft-motto">PASS</span></div><p class="nft-handle">gold</p><p class="nft-domain">agentgate</p><div class="nft-foot"><span class="nft-brand">AgentGate</span><span class="nft-glyph">⬡</span></div></div>
+                    </article>
+                    <article class="nft-fan-card tier-platinum" style="--fan:3">
+                        <div class="nft-fan-thickness" aria-hidden="true"></div>
+                        <div class="nft-plate"><div class="nft-sheen"></div><div class="nft-hex"></div><div class="nft-top"><span class="nft-chip">PLATINUM</span><span class="nft-motto" data-i18n="nftMotto">PASS</span></div><p class="nft-handle">platinum</p><p class="nft-domain">agentgate.ai</p><div class="nft-foot"><span class="nft-brand">AgentGate</span><span class="nft-glyph">⬡</span></div></div>
+                    </article>
+                </div>
+            </div>
+            <p class="tier-note" data-i18n="tierNote">Nhập Prompt để Checkin và Mint NFT Pass</p>
+        </aside>
 
         <div id="loginSection" class="login-section">
             <div class="brand-mark">
@@ -187,8 +212,51 @@
 
             <div id="result"></div>
         </div>
+        </div>
 
         <div id="dashboard" class="dashboard" style="display:none;">
+            <div class="stage-layout dash-stage">
+            <aside class="tier-rail" id="dashTierRail" aria-label="AgentGate Proof NFT">
+                <div class="nft-scene nft-scene-dash" data-nft-scene data-nft-open role="button" tabindex="0" aria-label="Xem NFT">
+                    <div class="nft-slab tier-bronze nft-slab-thick" data-dash-slab>
+                        <div class="nft-card" data-tier-badge data-tier="bronze" data-nft-card>
+                            <div class="nft-rim" aria-hidden="true"></div>
+                            <div class="nft-side nft-side-right" aria-hidden="true"></div>
+                            <div class="nft-side nft-side-left" aria-hidden="true"></div>
+                            <div class="nft-side nft-side-top" aria-hidden="true"></div>
+                            <div class="nft-side nft-side-bottom" aria-hidden="true"></div>
+                            <div class="nft-face nft-front">
+                                <div class="nft-plate">
+                                    <div class="nft-sheen" aria-hidden="true"></div>
+                                    <div class="nft-spark" aria-hidden="true"></div>
+                                    <div class="nft-hex" aria-hidden="true"></div>
+                                    <div class="nft-top">
+                                        <span class="nft-chip" data-i18n="nftChip">GATE PASS</span>
+                                        <span class="nft-motto" data-i18n="nftMotto">PASS</span>
+                                    </div>
+                                    <p class="nft-handle" data-nft-handle>yourname</p>
+                                    <p class="nft-domain" data-nft-domain>—.ai</p>
+                                    <div class="nft-foot">
+                                        <span class="nft-brand">AgentGate</span>
+                                        <span class="nft-glyph" aria-hidden="true">⬡</span>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="nft-face nft-back">
+                                <div class="nft-plate nft-plate-back nft-plate-stats">
+                                    <div class="nft-sheen" aria-hidden="true"></div>
+                                    <p class="nft-stats-kicker" data-i18n="nftStatsKicker">CHI TIẾT ĐIỂM</p>
+                                    <p class="nft-stats-score"><strong data-nft-score>—</strong><span data-i18n="nftStatsPts">điểm</span></p>
+                                    <p class="nft-stats-tier" data-nft-tier-label>BRONZE</p>
+                                    <ul class="nft-stats-list" data-nft-lines></ul>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                <p class="tier-note" data-i18n="tierCaptionDash">Bấm NFT để phóng to · kéo xoay 360° · mặt sau là bảng điểm.</p>
+            </aside>
+            <div class="dash-main-col">
             <div class="dash-brand-bar">
                 <div class="dash-brand-left">
                     <span class="dash-brand-mark" aria-hidden="true">
@@ -303,6 +371,8 @@
                 </div>
                 <div class="dash-seg dash-seg-about" id="dashWorkspaceSeg" role="tablist">
                     <button type="button" class="dash-seg-btn active" data-dash-panel="trade" role="tab" aria-selected="true" data-i18n="wsTrade">Trade</button>
+                    <button type="button" class="dash-seg-btn" data-dash-panel="proof" role="tab" aria-selected="false" data-i18n="wsProof">Proof</button>
+                    <button type="button" class="dash-seg-btn" data-dash-panel="pulse" role="tab" aria-selected="false" data-i18n="wsPulse">Pulse</button>
                     <button type="button" class="dash-seg-btn agent-only" data-dash-panel="create" role="tab" aria-selected="false" data-i18n="wsCreate">Create</button>
                     <button type="button" class="dash-seg-btn agent-only" data-dash-panel="tools" role="tab" aria-selected="false" data-i18n="wsTools">Tools</button>
                     <button type="button" class="dash-seg-btn" data-dash-panel="about" role="tab" aria-selected="false" data-i18n="wsAbout">Giới thiệu</button>
@@ -318,6 +388,128 @@
                             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
                             <span data-i18n="predict">Dự đoán</span>
                         </button>
+                    </div>
+                </div>
+
+                <div id="dashPanelProof" class="dash-panel" data-panel="proof" hidden>
+                    <div class="proof-layout">
+                        <article class="proof-card" aria-label="AgentGate Proof badge">
+                            <div class="proof-card-glow" aria-hidden="true"></div>
+                            <div class="proof-card-frame">
+                                <svg class="proof-badge-art" viewBox="0 0 200 240" role="img" aria-hidden="true">
+                                    <defs>
+                                        <linearGradient id="proofShield" x1="0%" y1="0%" x2="100%" y2="100%">
+                                            <stop offset="0%" stop-color="#2a2310"/>
+                                            <stop offset="55%" stop-color="#12161c"/>
+                                            <stop offset="100%" stop-color="#0b0e11"/>
+                                        </linearGradient>
+                                        <linearGradient id="proofGold" x1="0%" y1="0%" x2="0%" y2="100%">
+                                            <stop offset="0%" stop-color="#f8d56b"/>
+                                            <stop offset="100%" stop-color="#c99400"/>
+                                        </linearGradient>
+                                    </defs>
+                                    <path d="M100 12 L178 42 V118 C178 168 140 208 100 228 C60 208 22 168 22 118 V42 Z" fill="url(#proofShield)" stroke="url(#proofGold)" stroke-width="3"/>
+                                    <circle cx="100" cy="98" r="36" fill="none" stroke="url(#proofGold)" stroke-width="2.5" opacity="0.9"/>
+                                    <path d="M100 72 L112 92 H132 L116 106 L122 128 L100 114 L78 128 L84 106 L68 92 H88 Z" fill="url(#proofGold)"/>
+                                    <text x="100" y="168" text-anchor="middle" fill="#f0b90b" font-size="13" font-weight="700" font-family="Segoe UI, system-ui, sans-serif">AGENTGATE</text>
+                                    <text x="100" y="186" text-anchor="middle" fill="#9db2d0" font-size="10" font-weight="600" letter-spacing="1.5" font-family="Segoe UI, system-ui, sans-serif">PROOF</text>
+                                </svg>
+                                <span class="proof-soul-pill" data-i18n="proofSoulbound">SOULBOUND</span>
+                            </div>
+                            <div class="proof-card-meta">
+                                <h3 class="proof-title" data-i18n="proofTitle">AgentGate Proof</h3>
+                                <p class="proof-sub" data-i18n="proofSub">Badge on-chain · 1 lần / Agent ID · chỉ trả gas</p>
+                                <ul class="proof-traits">
+                                    <li data-i18n="proofTrait1">Không chuyển nhượng</li>
+                                    <li data-i18n="proofTrait2">Không hứa giá trị / lợi nhuận</li>
+                                    <li data-i18n="proofTrait3">Gate bằng Agent ID (.ai)</li>
+                                </ul>
+                            </div>
+                        </article>
+
+                        <div class="proof-side">
+                            <div class="proof-status-row" aria-live="polite">
+                                <div class="proof-status-chip">
+                                    <span class="proof-status-label" data-i18n="proofMintLabel">Proof</span>
+                                    <strong id="proofMintStatus" class="proof-status-value" data-i18n="proofMintNone">Chưa mint</strong>
+                                </div>
+                                <div class="proof-status-chip">
+                                    <span class="proof-status-label" data-i18n="proofCheckLabel">Check-in</span>
+                                    <strong id="proofCheckStatus" class="proof-status-value" data-i18n="proofCheckNone">Chưa hôm nay</strong>
+                                </div>
+                            </div>
+                            <p class="proof-metric-line">
+                                <span data-i18n="proofSupplyLabel">Đã mint</span>
+                                <strong id="proofMintedCount">—</strong>
+                            </p>
+                            <div class="proof-contract-box" id="proofContractBox">
+                                <span class="proof-contract-label" data-i18n="proofContractLabel">Pass contract (BSC)</span>
+                                <a id="proofContractLink" class="proof-contract-link" href="https://bscscan.com/address/0xb346d2705Ec8F8f863CBdfd3F0B78aB766AEA4c2" target="_blank" rel="noopener noreferrer" title="Open on BscScan">0xb346…A4c2</a>
+                                <button type="button" id="proofCopyAddrBtn" class="proof-copy-addr" data-i18n="proofCopyAddr">Copy address</button>
+                            </div>
+                            <button type="button" id="proofMintCheckInBtn" class="proof-primary-btn" data-i18n="proofMintCheckIn">
+                                Mint Proof + Check-in (1 prompt)
+                            </button>
+                            <div class="proof-secondary-row">
+                                <button type="button" id="proofMintOnlyBtn" class="proof-secondary-btn" data-i18n="proofMintOnly">Chỉ mint</button>
+                                <button type="button" id="proofCheckOnlyBtn" class="proof-secondary-btn" data-i18n="proofCheckOnly">Chỉ check-in</button>
+                            </div>
+                            <p class="proof-disclaimer" data-i18n="proofDisclaimer">
+                                Collectible miễn phí (gas only). Không phải đầu tư. Mỗi thao tác bạn tự confirm trong ví / Binance AI.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+
+                <div id="dashPanelPulse" class="dash-panel" data-panel="pulse" hidden>
+                    <div class="pulse-layout">
+                        <article class="pulse-card">
+                            <h3 class="pulse-title" data-i18n="pulseTitle">Agent Pulse Mode A</h3>
+                            <p class="pulse-sub" data-i18n="pulseSub">Agent ID only · 0.002 BNB · hoàn sau 24h + AGPULSE</p>
+                            <ul class="pulse-traits">
+                                <li data-i18n="pulseTrait1">1 share / Agent / ngày UTC</li>
+                                <li data-i18n="pulseTrait2">Hoàn 100% BNB escrow — owner không rút được</li>
+                                <li data-i18n="pulseTrait3">AGPULSE thử nghiệm — có thể vô giá trị</li>
+                            </ul>
+                            <div class="pulse-metrics" aria-live="polite">
+                                <div class="pulse-metric">
+                                    <span data-i18n="pulseBalLabel">AGPULSE</span>
+                                    <strong id="pulseTokenBal">—</strong>
+                                </div>
+                                <div class="pulse-metric">
+                                    <span data-i18n="pulseTodayLabel">Hôm nay</span>
+                                    <strong id="pulseTodayStatus">—</strong>
+                                </div>
+                                <div class="pulse-metric">
+                                    <span data-i18n="pulseRewardLabel">Reward / share</span>
+                                    <strong id="pulseRewardNow">—</strong>
+                                </div>
+                                <div class="pulse-metric">
+                                    <span data-i18n="pulseSharesLabel">Total shares</span>
+                                    <strong id="pulseTotalShares">—</strong>
+                                </div>
+                            </div>
+                        </article>
+                        <div class="pulse-side">
+                            <p class="pulse-pending" id="pulsePendingLine" hidden>
+                                <span data-i18n="pulsePendingLabel">Chờ unlock</span>
+                                <strong id="pulseUnlockAt">—</strong>
+                            </p>
+                            <div class="proof-contract-box" id="pulseContractBox">
+                                <span class="proof-contract-label" data-i18n="pulseMineLabel">PulseMine (BSC)</span>
+                                <a id="pulseMineLink" class="proof-contract-link" href="#" target="_blank" rel="noopener noreferrer">—</a>
+                                <button type="button" id="pulseCopyMineBtn" class="proof-copy-addr" data-i18n="proofCopyAddr">Copy address</button>
+                            </div>
+                            <button type="button" id="pulseEnterBtn" class="proof-primary-btn" data-i18n="pulseEnterBtn">
+                                Check-in + Enter Mode A (1 prompt)
+                            </button>
+                            <button type="button" id="pulseClaimBtn" class="proof-secondary-btn pulse-claim-btn" data-i18n="pulseClaimBtn">
+                                Claim BNB + AGPULSE
+                            </button>
+                            <p class="proof-disclaimer pulse-disclaimer" data-i18n="pulseDisclaimer">
+                                Experimental. No promised returns / not passive income. AGPULSE may be worthless. You confirm every tx. Escrow BNB chỉ claim được bởi chính bạn. Not a Binance product.
+                            </p>
+                        </div>
                     </div>
                 </div>
 
@@ -499,8 +691,9 @@
             </div>
 
             <p class="dash-disclaimer" data-i18n="dashDisclaimer">AgentGate không tự ký giao dịch. AI Agent phải simulate trước; bạn xác nhận mọi thao tác liên quan tài sản. Đây không phải lời khuyên đầu tư.</p>
-        </div>
-    </div>
+            </div><!-- /.dash-main-col -->
+            </div><!-- /.dash-stage -->
+        </div><!-- /#dashboard -->
 
     <!-- Send Modal -->
     <div id="sendModal" class="modal" style="display:none;">
@@ -1496,8 +1689,51 @@
         </div>
     </div>
 
+    <div id="nftLightbox" class="nft-lightbox" hidden aria-hidden="true">
+        <div class="nft-lightbox-backdrop" data-nft-close></div>
+        <div class="nft-lightbox-panel" role="dialog" aria-modal="true" aria-label="AgentGate NFT">
+            <div class="nft-lightbox-scene" data-nft-lightbox-scene>
+                <div class="nft-slab tier-bronze nft-slab-thick nft-slab-hero" data-lightbox-slab data-lightbox-spin>
+                    <div class="nft-card" data-tier-badge data-tier="bronze" data-lightbox-card>
+                        <div class="nft-rim" aria-hidden="true"></div>
+                        <div class="nft-side nft-side-right" aria-hidden="true"></div>
+                        <div class="nft-side nft-side-left" aria-hidden="true"></div>
+                        <div class="nft-side nft-side-top" aria-hidden="true"></div>
+                        <div class="nft-side nft-side-bottom" aria-hidden="true"></div>
+                        <div class="nft-face nft-front">
+                            <div class="nft-plate">
+                                <div class="nft-sheen" aria-hidden="true"></div>
+                                <div class="nft-spark" aria-hidden="true"></div>
+                                <div class="nft-hex" aria-hidden="true"></div>
+                                <div class="nft-top">
+                                    <span class="nft-chip">GATE PASS</span>
+                                    <span class="nft-motto">PASS</span>
+                                </div>
+                                <p class="nft-handle" data-nft-handle>yourname</p>
+                                <p class="nft-domain" data-nft-domain>—.ai</p>
+                                <div class="nft-foot">
+                                    <span class="nft-brand">AgentGate</span>
+                                    <span class="nft-glyph" aria-hidden="true">⬡</span>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="nft-face nft-back">
+                            <div class="nft-plate nft-plate-back nft-plate-stats">
+                                <div class="nft-sheen" aria-hidden="true"></div>
+                                <p class="nft-stats-kicker" data-i18n="nftStatsKicker">CHI TIẾT ĐIỂM</p>
+                                <p class="nft-stats-score"><strong data-nft-score>—</strong><span data-i18n="nftStatsPts">điểm</span></p>
+                                <p class="nft-stats-tier" data-nft-tier-label>BRONZE</p>
+                                <ul class="nft-stats-list" data-nft-lines></ul>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="app.js?v=20261125o"></script>
+    <script src="app.js?v=20261128w"></script>
 </body>
 </html>

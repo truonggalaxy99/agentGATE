@@ -1,0 +1,25 @@
+{
+  "network": "bsc",
+  "chainId": "56",
+  "pulseToken": "0xBFDCf46D62d0C701CcE89965C12716f95667dD60",
+  "pulseMine": "0x80d2e58C74c0b95E62cD46D295fd6b0B8d69a298",
+  "gate": "0xf61C2A65F66E4a5aFe357C2EC8c3851D396c530e",
+  "shareCost": "0.002",
+  "shareCostWei": "2000000000000000",
+  "baseRewardPerShare": "1000000000000000000000",
+  "lockSeconds": 86400,
+  "deployer": "0xB58f2CF5Ef62684F2270E8DB8C2Eb5957A5dd8a9",
+  "factory": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+  "deployTxToken": "0xccea2029470cbea19ceb30fe0173aa11efa8e5698cfb392529624ac7813eadbd",
+  "deployTxMine": "0x38fbf9c770f3d85a69fdb3482f75531fe848722e777158b5a5ef637c1bd8e9ab",
+  "setMinterTx": "0xb5b928cc6a2d454b47dd6258a7888a39035f580aaf913e2d59badff9a3b668ff",
+  "deployedAt": "2026-11-28T04:40:00.000Z",
+  "methods": {
+    "enter": "enterFree()",
+    "claim": "claimFree(uint256)",
+    "claimAll": "claimFreeAll()"
+  },
+  "bscscanToken": "https://bscscan.com/address/0xBFDCf46D62d0C701CcE89965C12716f95667dD60",
+  "bscscanMine": "https://bscscan.com/address/0x80d2e58C74c0b95E62cD46D295fd6b0B8d69a298",
+  "compliance": "Experimental Mode A. No promised returns. Owner cannot withdraw user escrow."
+}

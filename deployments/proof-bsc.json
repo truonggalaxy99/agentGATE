@@ -1,0 +1,12 @@
+{
+  "network": "bsc",
+  "chainId": "56",
+  "proofAddress": "0xb346d2705Ec8F8f863CBdfd3F0B78aB766AEA4c2",
+  "deployer": "0xB58f2CF5Ef62684F2270E8DB8C2Eb5957A5dd8a9",
+  "factory": "0x4e59b44847b379578588920cA78FbF26c0B4956C",
+  "salt": "0x0000000000000000000000000000000000000000000000000000000001352908",
+  "deployTx": "0x6770df09c7610b217f1b1bb174b9cba27694eb19c96ed8a1f079926eaf10d9bd",
+  "deployedAt": "2026-11-28T03:25:00.000Z",
+  "bscscan": "https://bscscan.com/address/0xb346d2705Ec8F8f863CBdfd3F0B78aB766AEA4c2",
+  "method": "mintProof()"
+}

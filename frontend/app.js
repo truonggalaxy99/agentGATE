@@ -23,6 +23,743 @@ function getAgentGateAddress() {
     return cfg.address || "";
 }
 
+function getProofAddress() {
+    const cfg = window.AGENT_GATE_CONFIG || {};
+    const proof = (cfg.proofAddress || "").trim();
+    if (proof && ethers.utils.isAddress(proof)) return proof;
+    return getAgentGateAddress();
+}
+
+function getProofMethod() {
+    const cfg = window.AGENT_GATE_CONFIG || {};
+    return (cfg.proofMethod || "mintProof()").trim() || "mintProof()";
+}
+
+function getPulseMineAddress() {
+    const cfg = window.AGENT_GATE_CONFIG || {};
+    const a = (cfg.pulseMine || "").trim();
+    return a && ethers.utils.isAddress(a) ? a : "";
+}
+
+function getPulseTokenAddress() {
+    const cfg = window.AGENT_GATE_CONFIG || {};
+    const a = (cfg.pulseToken || "").trim();
+    return a && ethers.utils.isAddress(a) ? a : "";
+}
+
+function getPulseShareCost() {
+    const cfg = window.AGENT_GATE_CONFIG || {};
+    return (cfg.pulseShareCost || "0.002").trim() || "0.002";
+}
+
+const AGENT_PULSE_MINE_ABI = [
+    "function enterFree() payable",
+    "function claimFree(uint256 positionId)",
+    "function claimFreeAll()",
+    "function canEnterToday(address agent) view returns (bool)",
+    "function currentRewardPerShare() view returns (uint256)",
+    "function totalShares() view returns (uint256)",
+    "function SHARE_COST() view returns (uint256)",
+    "function positionsOf(address agent, uint256 index) view returns (uint256)",
+    "function positionsOfLength(address agent) view returns (uint256)",
+    "function positions(uint256 id) view returns (address agent, uint128 amount, uint64 unlockTime, bool claimed, uint256 rewardFixed)",
+    "function gate() view returns (address)"
+];
+
+const AGENT_PULSE_TOKEN_ABI = [
+    "function balanceOf(address owner) view returns (uint256)",
+    "function symbol() view returns (string)",
+    "function decimals() view returns (uint8)"
+];
+
+function getPulseMineContract(providerOrSigner) {
+    const addr = getPulseMineAddress();
+    if (!addr) return null;
+    return new ethers.Contract(addr, AGENT_PULSE_MINE_ABI, providerOrSigner || getReadProvider());
+}
+
+function getPulseTokenContract(providerOrSigner) {
+    const addr = getPulseTokenAddress();
+    if (!addr) return null;
+    return new ethers.Contract(addr, AGENT_PULSE_TOKEN_ABI, providerOrSigner || getReadProvider());
+}
+
+const AGENT_GATE_PROOF_ABI = [
+    "function mintProof()",
+    "function hasMinted(address user) view returns (bool)",
+    "function totalMinted() view returns (uint256)",
+    "function balanceOf(address owner) view returns (uint256)",
+    "function tokenOf(address owner) view returns (uint256)"
+];
+
+function getProofContract(providerOrSigner) {
+    const addr = getProofAddress();
+    if (!addr) return null;
+    return new ethers.Contract(addr, AGENT_GATE_PROOF_ABI, providerOrSigner || getReadProvider());
+}
+
+/** @type {{ tier: string, score: number|null, lines: string[] } | null} */
+let lastTierResult = null;
+let lastTierAddress = "";
+let nftViewerBound = false;
+let nftLightboxOpen = false;
+
+const TIER_ORDER = ["bronze", "silver", "gold", "platinum"];
+
+function tierLabel(tier) {
+    const key = {
+        platinum: "tierPlatinum",
+        gold: "tierGold",
+        silver: "tierSilver",
+        bronze: "tierBronze"
+    }[tier] || "tierBronze";
+    return t(key);
+}
+
+function scoreToTier(score) {
+    if (score >= 80) return "platinum";
+    if (score >= 60) return "gold";
+    if (score >= 40) return "silver";
+    return "bronze";
+}
+
+function pointsFromTxCount(n) {
+    if (n >= 200) return 30;
+    if (n >= 50) return 24;
+    if (n >= 10) return 16;
+    if (n >= 1) return 8;
+    return 0;
+}
+
+function pointsFromBnb(ethFloat) {
+    if (ethFloat >= 0.1) return 10;
+    if (ethFloat >= 0.01) return 5;
+    if (ethFloat > 0) return 2;
+    return 0;
+}
+
+/**
+ * Self-only public score for a wallet the user already identified as theirs
+ * (login Check / connected session). Best-effort on-chain estimates — not credit advice.
+ */
+async function computeAgentTier(address) {
+    const lines = [];
+    let score = 0;
+    if (!address || !ethers.utils.isAddress(address)) {
+        return { tier: "bronze", score: null, lines: [t("tierNeedAddr")] };
+    }
+    const provider = getReadProvider();
+    const addr = ethers.utils.getAddress(address);
+
+    try {
+        const id = new ethers.Contract(AGENT_ID_CONTRACT, AGENT_ID_ABI, provider);
+        const bal = await id.balanceOf(addr);
+        if (bal.gt(0)) {
+            score += 20;
+            lines.push(`+20 · ${t("tierLineAgentId")}`);
+        } else {
+            lines.push(`+0 · ${t("tierLineNoAgentId")}`);
+        }
+    } catch (_) {
+        lines.push(`· ${t("tierLineAgentIdFail")}`);
+    }
+
+    try {
+        const gate = getAgentGateContract(provider);
+        if (gate) {
+            const activated = await gate.activated(addr);
+            if (activated) {
+                score += 25;
+                lines.push(`+25 · ${t("tierLineActivated")}`);
+            } else {
+                lines.push(`+0 · ${t("tierLineNotActivated")}`);
+            }
+            const last = await gate.lastCheckIn(addr);
+            const lastSec = last && last.toNumber ? last.toNumber() : Number(last || 0);
+            const now = Math.floor(Date.now() / 1000);
+            if (lastSec > 0 && now - lastSec <= 86400) {
+                score += 15;
+                lines.push(`+15 · ${t("tierLineCheckToday")}`);
+            } else if (lastSec > 0 && now - lastSec <= 86400 * 7) {
+                score += 10;
+                lines.push(`+10 · ${t("tierLineCheckWeek")}`);
+            } else if (lastSec > 0) {
+                score += 4;
+                lines.push(`+4 · ${t("tierLineCheckOld")}`);
+            } else {
+                lines.push(`+0 · ${t("tierLineNoCheck")}`);
+            }
+        }
+    } catch (_) {
+        lines.push(`· ${t("tierLineGateFail")}`);
+    }
+
+    try {
+        const txCount = await provider.getTransactionCount(addr);
+        const pts = pointsFromTxCount(txCount);
+        score += pts;
+        lines.push(`+${pts} · ${t("tierLineTx").replace("{n}", String(txCount))}`);
+    } catch (_) {
+        lines.push(`· ${t("tierLineTxFail")}`);
+    }
+
+    try {
+        const wei = await provider.getBalance(addr);
+        const eth = Number(ethers.utils.formatEther(wei));
+        const pts = pointsFromBnb(eth);
+        score += pts;
+        lines.push(`+${pts} · ${t("tierLineBal")}`);
+    } catch (_) {
+        lines.push(`· ${t("tierLineBalFail")}`);
+    }
+
+    score = Math.max(0, Math.min(100, score));
+    return { tier: scoreToTier(score), score, lines };
+}
+
+function resolveNftIdentity() {
+    const raw = String(currentAgentName || document.getElementById("agentInput")?.value || "").trim();
+    let handle = "yourname";
+    let domain = "—.ai";
+    if (raw.toLowerCase().endsWith(".ai")) {
+        handle = raw.slice(0, -3);
+        domain = raw.toLowerCase();
+    } else if (raw && !ethers.utils.isAddress(raw)) {
+        handle = raw.replace(/^@/, "");
+        domain = `${handle}.ai`;
+    } else if (raw && ethers.utils.isAddress(raw)) {
+        handle = shortAddr(raw);
+        domain = shortAddr(raw);
+    }
+    if (handle.length > 18) handle = `${handle.slice(0, 16)}…`;
+    return { handle, domain };
+}
+
+function paintTierBadge(result) {
+    lastTierResult = result;
+    const tier = result?.tier || "bronze";
+    const score = result?.score;
+    const lines = Array.isArray(result?.lines) ? result.lines : [];
+    const id = resolveNftIdentity();
+    const label = tierLabel(tier);
+    const scoreText = score == null ? "—" : String(score);
+
+    document.querySelectorAll("[data-dash-slab], [data-lightbox-slab]").forEach(slab => {
+        TIER_ORDER.forEach(x => slab.classList.remove(`tier-${x}`));
+        slab.classList.add(`tier-${tier}`);
+    });
+
+    document.querySelectorAll("[data-tier-badge]").forEach(badge => {
+        TIER_ORDER.forEach(x => badge.classList.remove(`tier-${x}`));
+        badge.classList.add(`tier-${tier}`);
+        badge.dataset.tier = tier;
+        const handleEl = badge.querySelector("[data-nft-handle]");
+        if (handleEl) handleEl.textContent = id.handle;
+        const domainEl = badge.querySelector("[data-nft-domain]");
+        if (domainEl) domainEl.textContent = id.domain;
+        const chip = badge.querySelector(".nft-front .nft-chip");
+        if (chip) chip.textContent = label;
+        const scoreEl = badge.querySelector("[data-nft-score]");
+        if (scoreEl) scoreEl.textContent = scoreText;
+        const tierEl = badge.querySelector("[data-nft-tier-label]");
+        if (tierEl) tierEl.textContent = label;
+        const list = badge.querySelector("[data-nft-lines]");
+        if (list) {
+            list.innerHTML = "";
+            const rows = lines.length ? lines : [t("tierNeedAddr")];
+            rows.forEach(line => {
+                const li = document.createElement("li");
+                li.textContent = line;
+                list.appendChild(li);
+            });
+        }
+        badge.title = score == null ? label : `${label} · ${score}`;
+    });
+}
+
+async function refreshAgentTier(address) {
+    const addr = address || currentDashboardAddress || lastTierAddress || userAddress || "";
+    if (!addr) {
+        paintTierBadge({ tier: "bronze", score: null, lines: [t("tierNeedAddr")] });
+        return null;
+    }
+    lastTierAddress = addr;
+    document.querySelectorAll(".tier-refresh-btn").forEach(b => { b.disabled = true; });
+    try {
+        const result = await computeAgentTier(addr);
+        paintTierBadge(result);
+        return result;
+    } finally {
+        document.querySelectorAll(".tier-refresh-btn").forEach(b => { b.disabled = false; });
+    }
+}
+
+function bindLoginNftFan() {
+    const stack = document.getElementById("loginNftStack");
+    if (!stack || stack.dataset.fanBound === "1") return;
+    stack.dataset.fanBound = "1";
+    const toggle = () => {
+        const open = stack.classList.toggle("is-fanned");
+        stack.setAttribute("aria-expanded", open ? "true" : "false");
+    };
+    stack.addEventListener("click", (e) => {
+        e.preventDefault();
+        toggle();
+    });
+    stack.addEventListener("keydown", (e) => {
+        if (e.key === "Enter" || e.key === " ") {
+            e.preventDefault();
+            toggle();
+        }
+    });
+}
+
+function ensureNftLightboxOnBody() {
+    const lb = document.getElementById("nftLightbox");
+    if (lb && lb.parentElement !== document.body) {
+        document.body.appendChild(lb);
+    }
+    return lb;
+}
+
+function closeNftLightbox() {
+    const lb = ensureNftLightboxOnBody();
+    if (!lb) return;
+    nftLightboxOpen = false;
+    lb.hidden = true;
+    lb.setAttribute("aria-hidden", "true");
+    document.body.classList.remove("nft-lightbox-open");
+    const spin = lb.querySelector("[data-lightbox-card]");
+    if (spin) {
+        spin.style.transition = "transform 0.4s ease";
+        spin.style.transform = "rotateX(0deg) rotateY(0deg)";
+    }
+}
+
+function openNftLightbox() {
+    const lb = ensureNftLightboxOnBody();
+    if (!lb) return;
+    if (lastTierResult) paintTierBadge(lastTierResult);
+    nftLightboxOpen = true;
+    lb.hidden = false;
+    lb.setAttribute("aria-hidden", "false");
+    document.body.classList.add("nft-lightbox-open");
+    const spin = lb.querySelector("[data-lightbox-card]");
+    if (spin) {
+        spin.style.transition = "none";
+        spin.style.transform = "rotateX(4deg) rotateY(-10deg)";
+        requestAnimationFrame(() => {
+            spin.style.transition = "transform 0.5s cubic-bezier(0.22, 1, 0.36, 1)";
+            spin.style.transform = "rotateX(0deg) rotateY(0deg)";
+        });
+    }
+}
+
+function bindNftViewer() {
+    if (nftViewerBound) return;
+    nftViewerBound = true;
+    ensureNftLightboxOnBody();
+
+    const openers = document.querySelectorAll("#dashTierRail [data-nft-open]");
+    openers.forEach(el => {
+        el.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            openNftLightbox();
+        });
+        el.addEventListener("keydown", (e) => {
+            if (e.key === "Enter" || e.key === " ") {
+                e.preventDefault();
+                openNftLightbox();
+            }
+        });
+    });
+
+    document.querySelectorAll("[data-nft-close]").forEach(el => {
+        el.addEventListener("click", (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            closeNftLightbox();
+        });
+    });
+
+    document.addEventListener("keydown", (e) => {
+        if (e.key === "Escape" && nftLightboxOpen) closeNftLightbox();
+    });
+
+    const scene = document.querySelector("[data-nft-lightbox-scene]");
+    const spin = document.querySelector("[data-lightbox-card]");
+    if (!scene || !spin) return;
+
+    let rotY = 0;
+    let rotX = 0;
+    let dragging = false;
+    let lastX = 0;
+    let lastY = 0;
+    let activePointer = null;
+
+    const apply = (animate) => {
+        spin.style.transition = animate ? "transform 0.45s cubic-bezier(0.22, 1, 0.36, 1)" : "none";
+        spin.style.transform = `rotateX(${rotX.toFixed(2)}deg) rotateY(${rotY.toFixed(2)}deg)`;
+    };
+
+    const snapHome = () => {
+        rotY = 0;
+        rotX = 0;
+        apply(true);
+    };
+
+    const onMove = (e) => {
+        if (!dragging || e.pointerId !== activePointer) return;
+        const dx = e.clientX - lastX;
+        const dy = e.clientY - lastY;
+        rotY += dx * 0.75;
+        rotX = Math.max(-38, Math.min(38, rotX - dy * 0.35));
+        lastX = e.clientX;
+        lastY = e.clientY;
+        apply(false);
+    };
+
+    const onUp = (e) => {
+        if (!dragging) return;
+        if (e && activePointer != null && e.pointerId !== activePointer) return;
+        dragging = false;
+        activePointer = null;
+        scene.classList.remove("is-dragging");
+        snapHome(); // thả tay → xoay về vị trí ban đầu
+    };
+
+    scene.addEventListener("pointerdown", (e) => {
+        if (!nftLightboxOpen) return;
+        if (e.button != null && e.button !== 0) return;
+        e.preventDefault();
+        e.stopPropagation();
+        dragging = true;
+        activePointer = e.pointerId;
+        lastX = e.clientX;
+        lastY = e.clientY;
+        const m = /rotateY\((-?\d+(?:\.\d+)?)deg\)/.exec(spin.style.transform || "");
+        const mx = /rotateX\((-?\d+(?:\.\d+)?)deg\)/.exec(spin.style.transform || "");
+        rotY = m ? parseFloat(m[1]) || 0 : 0;
+        rotX = mx ? parseFloat(mx[1]) || 0 : 0;
+        scene.classList.add("is-dragging");
+        try { scene.setPointerCapture(e.pointerId); } catch (_) {}
+        apply(false);
+    });
+
+    scene.addEventListener("pointermove", onMove);
+    scene.addEventListener("pointerup", onUp);
+    scene.addEventListener("pointercancel", onUp);
+    window.addEventListener("pointerup", onUp);
+}
+
+function isSameUtcDay(tsSec) {
+    if (!tsSec) return false;
+    const n = Number(tsSec);
+    if (!Number.isFinite(n) || n <= 0) return false;
+    const d = new Date(n * 1000);
+    const now = new Date();
+    return d.getUTCFullYear() === now.getUTCFullYear()
+        && d.getUTCMonth() === now.getUTCMonth()
+        && d.getUTCDate() === now.getUTCDate();
+}
+
+function paintProofContractUi() {
+    const link = document.getElementById("proofContractLink");
+    const box = document.getElementById("proofContractBox");
+    const cfg = window.AGENT_GATE_CONFIG || {};
+    const addr = (cfg.proofAddress || "").trim();
+    const ok = !!(addr && ethers.utils.isAddress(addr));
+    if (box) box.hidden = !ok;
+    if (!ok || !link) return;
+    const short = `${addr.slice(0, 6)}…${addr.slice(-4)}`;
+    link.href = `https://bscscan.com/address/${addr}`;
+    link.textContent = short;
+    link.title = addr;
+}
+
+async function refreshProofUi(address = currentDashboardAddress) {
+    const mintEl = document.getElementById("proofMintStatus");
+    const checkEl = document.getElementById("proofCheckStatus");
+    const countEl = document.getElementById("proofMintedCount");
+    paintProofContractUi();
+    if (!mintEl && !checkEl && !countEl) return;
+
+    const cfg = window.AGENT_GATE_CONFIG || {};
+    const proofDeployed = !!(cfg.proofAddress && ethers.utils.isAddress(cfg.proofAddress));
+    const provider = getReadProvider();
+
+    if (proofDeployed) {
+        try {
+            const proof = getProofContract(provider);
+            if (countEl) {
+                const total = await proof.totalMinted();
+                countEl.innerText = String(total.toString ? total.toString() : total);
+            }
+            if (mintEl && address) {
+                const minted = await proof.hasMinted(address);
+                if (minted) {
+                    mintEl.classList.add("is-ok");
+                    mintEl.innerText = t("proofMintOk");
+                } else {
+                    mintEl.classList.remove("is-ok");
+                    mintEl.innerText = t("proofMintNone");
+                }
+            } else if (mintEl) {
+                mintEl.classList.remove("is-ok");
+                mintEl.innerText = t("proofMintNone");
+            }
+        } catch (_) {
+            if (mintEl) {
+                mintEl.classList.remove("is-ok");
+                mintEl.innerText = t("proofMintNone");
+            }
+            if (countEl) countEl.innerText = "—";
+        }
+    } else {
+        if (mintEl) {
+            mintEl.classList.remove("is-ok");
+            mintEl.innerText = t("proofMintNone");
+        }
+        if (countEl) countEl.innerText = "—";
+    }
+
+    const gateAddr = getAgentGateAddress();
+    if (!gateAddr || !address) {
+        if (checkEl) {
+            checkEl.classList.remove("is-ok");
+            checkEl.innerText = t("proofCheckNone");
+        }
+        return;
+    }
+    try {
+        const gate = getAgentGateContract(provider);
+        const last = await gate.lastCheckIn(address);
+        const lastSec = last && last.toNumber ? last.toNumber() : Number(last || 0);
+        if (checkEl) {
+            if (isSameUtcDay(lastSec)) {
+                checkEl.classList.add("is-ok");
+                checkEl.innerText = t("proofCheckOk");
+            } else {
+                checkEl.classList.remove("is-ok");
+                checkEl.innerText = t("proofCheckNone");
+            }
+        }
+    } catch (_) {
+        if (checkEl) {
+            checkEl.classList.remove("is-ok");
+            checkEl.innerText = t("proofCheckNone");
+        }
+    }
+}
+
+function buildProofPrompt({ includeMint = true, includeCheckIn = true } = {}) {
+    const gate = getAgentGateAddress();
+    const proof = getProofAddress();
+    const method = getProofMethod();
+    const cfg = window.AGENT_GATE_CONFIG || {};
+    const proofDeployed = !!(cfg.proofAddress && ethers.utils.isAddress(cfg.proofAddress));
+    const lines = [
+        "Using my Binance Agentic Wallet on BNB Smart Chain (chain ID 56).",
+        "I hold an Agent ID (.ai). Confirm every transaction myself — do not bypass confirmation.",
+        "This is a free collectible / identity action only (gas). Do not promise or imply any returns."
+    ];
+    let step = 1;
+    if (includeMint) {
+        if (proofDeployed) {
+            lines.push(`${step}) If I have not minted yet, call ${method} on AgentGate Proof at ${proof}. Soulbound, once per Agent ID, value 0 (gas only).`);
+        } else {
+            lines.push(`${step}) Proof mint contract is pending deploy — skip mint for now, or ask me for the updated Proof address, then call ${method} (soulbound, once per Agent ID, gas only).`);
+        }
+        step += 1;
+    }
+    if (includeCheckIn) {
+        if (gate) {
+            lines.push(`${step}) Call checkIn() on AgentGate at ${gate}. Identity check-in only; no funds moved.`);
+        } else {
+            lines.push(`${step}) AgentGate address missing — configure config.js then call checkIn().`);
+        }
+        step += 1;
+    }
+    lines.push(`${step}) Report back mint status (if any), check-in status, and tx hashes.`);
+    return lines.join("\n");
+}
+
+async function refreshPulseUi(address = currentDashboardAddress) {
+    const balEl = document.getElementById("pulseTokenBal");
+    const todayEl = document.getElementById("pulseTodayStatus");
+    const rewardEl = document.getElementById("pulseRewardNow");
+    const sharesEl = document.getElementById("pulseTotalShares");
+    const pendingLine = document.getElementById("pulsePendingLine");
+    const unlockEl = document.getElementById("pulseUnlockAt");
+    const link = document.getElementById("pulseMineLink");
+    const mineAddr = getPulseMineAddress();
+    const tokenAddr = getPulseTokenAddress();
+
+    if (link) {
+        if (mineAddr) {
+            link.href = `https://bscscan.com/address/${mineAddr}`;
+            link.textContent = `${mineAddr.slice(0, 6)}…${mineAddr.slice(-4)}`;
+            link.title = mineAddr;
+        } else {
+            link.removeAttribute("href");
+            link.textContent = "—";
+        }
+    }
+
+    if (!mineAddr) {
+        if (todayEl) todayEl.innerText = t("pulsePendingContract");
+        if (balEl) balEl.innerText = "—";
+        if (rewardEl) rewardEl.innerText = "—";
+        if (sharesEl) sharesEl.innerText = "—";
+        if (pendingLine) pendingLine.hidden = true;
+        return;
+    }
+
+    const provider = getReadProvider();
+    try {
+        const mine = getPulseMineContract(provider);
+        if (sharesEl) {
+            const total = await mine.totalShares();
+            sharesEl.innerText = String(total.toString ? total.toString() : total);
+        }
+        if (rewardEl) {
+            const reward = await mine.currentRewardPerShare();
+            rewardEl.innerText = ethers.utils.formatEther(reward);
+        }
+        if (todayEl && address) {
+            const can = await mine.canEnterToday(address);
+            todayEl.innerText = can ? t("pulseTodayOk") : t("pulseTodayNo");
+            todayEl.classList.toggle("is-ok", !!can);
+        } else if (todayEl) {
+            todayEl.innerText = "—";
+        }
+
+        let nextUnlock = 0;
+        if (address && pendingLine && unlockEl) {
+            try {
+                const n = await mine.positionsOfLength(address);
+                const count = n.toNumber ? n.toNumber() : Number(n);
+                for (let i = 0; i < count; i++) {
+                    const id = await mine.positionsOf(address, i);
+                    const pos = await mine.positions(id);
+                    const claimed = pos.claimed === true || pos[3] === true;
+                    const unlock = Number(pos.unlockTime || pos[2] || 0);
+                    if (!claimed && unlock > nextUnlock) nextUnlock = unlock;
+                }
+            } catch (_) {}
+            if (nextUnlock > Math.floor(Date.now() / 1000)) {
+                pendingLine.hidden = false;
+                unlockEl.innerText = new Date(nextUnlock * 1000).toLocaleString();
+            } else if (nextUnlock > 0) {
+                pendingLine.hidden = false;
+                unlockEl.innerText = t("pulseClaimBtn");
+            } else {
+                pendingLine.hidden = true;
+            }
+        }
+    } catch (_) {
+        if (todayEl) todayEl.innerText = "—";
+        if (sharesEl) sharesEl.innerText = "—";
+        if (rewardEl) rewardEl.innerText = "—";
+    }
+
+    if (balEl) {
+        if (!tokenAddr || !address) {
+            balEl.innerText = "—";
+        } else {
+            try {
+                const token = getPulseTokenContract(provider);
+                const bal = await token.balanceOf(address);
+                balEl.innerText = Number(ethers.utils.formatEther(bal)).toLocaleString(undefined, { maximumFractionDigits: 4 });
+            } catch (_) {
+                balEl.innerText = "—";
+            }
+        }
+    }
+}
+
+function buildPulseEnterPrompt() {
+    const gate = getAgentGateAddress();
+    const mine = getPulseMineAddress();
+    const cost = getPulseShareCost();
+    const lines = [
+        "Using my Binance Agentic Wallet on BNB Smart Chain (chain ID 56).",
+        "I hold an Agent ID (.ai). Confirm every transaction myself — do not bypass confirmation.",
+        "This is experimental. No promised returns / not passive income. AGPULSE may be worthless.",
+        `1) Call checkIn() on AgentGate at ${gate}. Identity check-in only.`,
+        `2) Call enterFree() on AgentPulseMine at ${mine} with value exactly ${cost} BNB (SHARE_COST). Mode A escrow — reclaimable by me after 24h via claimFree. Owner cannot withdraw my escrow.`,
+        "3) Report both tx hashes. Do not promise yield, APY, or profit."
+    ];
+    return lines.join("\n");
+}
+
+function buildPulseClaimPrompt() {
+    const mine = getPulseMineAddress();
+    return [
+        "Using my Binance Agentic Wallet on BNB Smart Chain (chain ID 56).",
+        "Confirm every transaction myself — do not bypass confirmation.",
+        "Experimental. No promised returns. AGPULSE may be worthless.",
+        `Call claimFreeAll() on AgentPulseMine at ${mine} to reclaim unlocked BNB escrow and mint fixed AGPULSE for matured Mode A positions.`,
+        "Report tx hash and amounts. Do not promise profit."
+    ].join("\n");
+}
+
+function handoffPulseEnterPrompt() {
+    if (!getPulseMineAddress()) {
+        showToast(t("pulsePendingContract"), 4200);
+        return;
+    }
+    const summary = buildPulseEnterPrompt();
+    const intent = buildAgentIntent("gate.pulseEnter", {
+        gateContract: getAgentGateAddress() || null,
+        pulseMine: getPulseMineAddress(),
+        shareCost: getPulseShareCost(),
+        method: "enterFree()"
+    });
+    const prompt = openIntentHandoff("Pulse · Check-in + Enter Mode A", intent, summary);
+    navigator.clipboard.writeText(prompt).then(() => showToast(t("toastPulseEnter"))).catch(() => {});
+}
+
+function handoffPulseClaimPrompt() {
+    if (!getPulseMineAddress()) {
+        showToast(t("pulsePendingContract"), 4200);
+        return;
+    }
+    const summary = buildPulseClaimPrompt();
+    const intent = buildAgentIntent("gate.pulseClaim", {
+        pulseMine: getPulseMineAddress(),
+        method: "claimFreeAll()"
+    });
+    const prompt = openIntentHandoff("Pulse · Claim", intent, summary);
+    navigator.clipboard.writeText(prompt).then(() => showToast(t("toastPulseClaim"))).catch(() => {});
+}
+
+function handoffProofPrompt({ includeMint = true, includeCheckIn = true } = {}) {
+    const cfg = window.AGENT_GATE_CONFIG || {};
+    const proofDeployed = !!(cfg.proofAddress && ethers.utils.isAddress(cfg.proofAddress));
+    if (includeMint && !proofDeployed) showToast(t("proofPendingContract"), 4200);
+    const summary = buildProofPrompt({ includeMint, includeCheckIn });
+    const intent = buildAgentIntent(
+        includeMint && includeCheckIn ? "gate.proofAndCheckIn" : (includeMint ? "gate.mintProof" : "gate.checkIn"),
+        {
+            proofContract: getProofAddress() || null,
+            proofMethod: getProofMethod(),
+            gateContract: getAgentGateAddress() || null,
+            includeMint,
+            includeCheckIn
+        }
+    );
+    const title = includeMint && includeCheckIn
+        ? "AgentGate Proof + Check-in"
+        : (includeMint ? "AgentGate mintProof" : "AgentGate checkIn");
+    const prompt = openIntentHandoff(title, intent, summary);
+    navigator.clipboard.writeText(prompt).then(() => {
+        showToast(includeMint && includeCheckIn ? t("toastProofPrompt") : (includeMint ? t("toastProofMintPrompt") : t("toastCopiedPrompt")));
+    }).catch(() => {});
+    return prompt;
+}
+
 function getAgentGateContract(signerOrProvider) {
     const addr = getAgentGateAddress();
     if (!addr || !ethers.utils.isAddress(addr)) return null;
@@ -229,8 +966,8 @@ const I18N = {
         web3Step1: "Cài / mở MetaMask hoặc Binance Wallet", web3Step2: "Kết nối ví trên BNB Smart Chain", web3Step3: "Gửi / Swap / trade trực tiếp bằng ví",
         brandWeb3: "Web3 Wallet · BNB Smart Chain", brandAgent: "Agentic Wallet · BNB Smart Chain",
         loginStep1: "Nhập Agent ID (name.ai) của bạn",
-        loginStep2: "Mở Binance AI (hoặc copy prompt) → checkIn",
-        loginStep3: "Vào dashboard — máy này tin 24 giờ",
+        loginStep2: "Mở Binance AI (hoặc copy prompt) → checkIn + nhận NFT xếp hạng",
+        loginStep3: "Vào dashboard — hiện NFT kỷ niệm · máy này tin 24 giờ",
         agentNeedOwnWallet: "Tuỳ chọn: nối ví chủ Agent ID để xác minh máy này ngay (không bắt buộc).",
         agentOwnerMismatch: "Ví Web3 đang kết nối không khớp Agent ID này.",
         agentUnverifiedBanner: "Chưa xác minh — quay lại trang chủ để mở Binance AI / checkIn.",
@@ -274,7 +1011,84 @@ const I18N = {
         wsCreate: "Create",
         wsTools: "Tools",
         wsAbout: "Giới thiệu",
+        wsProof: "Proof",
+        wsPulse: "Pulse",
         wsCreateHint: "Tạo Token / NFT → prompt cho AI Agent.",
+        pulseTitle: "Agent Pulse Mode A",
+        pulseSub: "Chỉ Agent ID · 0.002 BNB · hoàn sau 24h + AGPULSE",
+        pulseTrait1: "1 share / Agent / ngày UTC",
+        pulseTrait2: "Hoàn 100% BNB escrow — owner không rút được",
+        pulseTrait3: "AGPULSE thử nghiệm — có thể vô giá trị",
+        pulseBalLabel: "AGPULSE",
+        pulseTodayLabel: "Hôm nay",
+        pulseRewardLabel: "Reward / share",
+        pulseSharesLabel: "Total shares",
+        pulsePendingLabel: "Chờ unlock",
+        pulseMineLabel: "PulseMine (BSC)",
+        pulseEnterBtn: "Check-in + Enter Mode A (1 prompt)",
+        pulseClaimBtn: "Claim BNB + AGPULSE",
+        pulseDisclaimer: "Experimental. No promised returns / not passive income. AGPULSE may be worthless. You confirm every tx. Escrow BNB chỉ claim được bởi chính bạn. Not a Binance product.",
+        pulseTodayOk: "Có thể enter",
+        pulseTodayNo: "Đã enter hôm nay",
+        pulsePendingContract: "PulseMine chưa deploy / chưa cấu hình.",
+        toastPulseEnter: "Đã copy prompt Check-in + Enter Mode A",
+        toastPulseClaim: "Đã copy prompt Claim Pulse",
+        toastPulseMineAddr: "Đã copy địa chỉ PulseMine",
+        proofSoulbound: "SOULBOUND",
+        proofTitle: "AgentGate Proof",
+        proofSub: "Badge on-chain · 1 lần / Agent ID · chỉ trả gas",
+        proofTrait1: "Không chuyển nhượng",
+        proofTrait2: "Không hứa giá trị / lợi nhuận",
+        proofTrait3: "Gate bằng Agent ID (.ai)",
+        proofMintLabel: "Proof",
+        proofCheckLabel: "Check-in",
+        proofMintNone: "Chưa mint",
+        proofMintOk: "Đã mint",
+        proofCheckNone: "Chưa hôm nay",
+        proofCheckOk: "Đã check-in",
+        proofSupplyLabel: "Đã mint",
+        proofContractLabel: "Pass contract (BSC)",
+        proofCopyAddr: "Copy address",
+        toastProofAddr: "Đã copy địa chỉ Pass",
+        proofMintCheckIn: "Mint Proof + Check-in (1 prompt)",
+        proofMintOnly: "Chỉ mint",
+        proofCheckOnly: "Chỉ check-in",
+        proofDisclaimer: "Collectible miễn phí (gas only). Không phải đầu tư. Mỗi thao tác bạn tự confirm trong ví / Binance AI.",
+        proofPendingContract: "Contract Proof chưa deploy — prompt vẫn gồm mint + checkIn; cập nhật địa chỉ sau.",
+        toastProofPrompt: "Đã copy prompt Mint Proof + Check-in",
+        toastProofMintPrompt: "Đã copy prompt mint Proof",
+        tierScore: "Score",
+        tierRefresh: "Chấm hạng (self)",
+        tierNote: "Nhập Prompt để Checkin và Mint NFT Pass",
+        tierCaptionDash: "Bấm NFT để phóng to · kéo xoay 360° · mặt sau là bảng điểm.",
+        nftStatsKicker: "CHI TIẾT ĐIỂM",
+        nftStatsPts: "điểm",
+        nftLightboxHint: "Kéo để xoay 360° · Esc / click nền để đóng",
+        nftChip: "GATE PASS",
+        nftMotto: "PASS",
+        nftBackRank: "RANK",
+        nftSpinHint: "Kéo để xoay 360°",
+        nftFanHint: "Bấm để xòe / thu bài",
+        nftRankReady: "NFT xếp hạng",
+        tierPlatinum: "PLATINUM",
+        tierGold: "GOLD",
+        tierSilver: "SILVER",
+        tierBronze: "BRONZE",
+        tierNeedAddr: "Nhập Agent ID của bạn rồi bấm Check, hoặc kết nối ví.",
+        tierLineAgentId: "Có Agent ID (.ai)",
+        tierLineNoAgentId: "Chưa có Agent ID",
+        tierLineAgentIdFail: "Không đọc được Agent ID registry",
+        tierLineActivated: "Đã Activate AgentGate",
+        tierLineNotActivated: "Chưa Activate AgentGate",
+        tierLineCheckToday: "Check-in trong 24h",
+        tierLineCheckWeek: "Check-in trong 7 ngày",
+        tierLineCheckOld: "Đã từng check-in",
+        tierLineNoCheck: "Chưa check-in",
+        tierLineGateFail: "Không đọc được AgentGate",
+        tierLineTx: "On-chain tx ≈ {n}",
+        tierLineTxFail: "Không đọc được số tx",
+        tierLineBal: "Số dư BNB (ước tính)",
+        tierLineBalFail: "Không đọc được số dư",
         approvals: "Approve",
         approvalsSub: "Quyền token",
         bridge: "Bridge",
@@ -350,7 +1164,7 @@ const I18N = {
         ],
         dashDisclaimerWeb3: "Luồng Web3: bạn ký giao dịch trực tiếp bằng ví. Kiểm tra mạng BNB Smart Chain trước khi confirm. Không phải lời khuyên đầu tư.",
         pillGate: "Agent ID gate", pillIntent: "AI Intent", pillChain: "BNB Smart Chain", pillSimulate: "Simulate first",
-        loginStep1: "Nhập Agent ID (name.ai) của bạn", loginStep2: "Mở Binance AI (hoặc copy prompt) → checkIn", loginStep3: "Vào dashboard — máy này tin 24 giờ",
+        loginStep1: "Nhập Agent ID (name.ai) của bạn", loginStep2: "Mở Binance AI (hoặc copy prompt) → checkIn + nhận NFT xếp hạng", loginStep3: "Vào dashboard — hiện NFT kỷ niệm · máy này tin 24 giờ",
         loginClaim: "Chưa có Agent ID? <a href=\"https://www.binance.com/en/download\" target=\"_blank\" rel=\"noopener\">Claim trong Binance App</a> (Wallet → banner Agent ID)",
         popular: "Phổ biến", bnbMainnet: "BNB Smart Chain · Mainnet", agentNft: "Agent ID NFT", loading: "Đang tải...",
         networkChip: "Mạng: BNB Smart Chain",
@@ -613,8 +1427,8 @@ const I18N = {
         web3Step1: "Install / open MetaMask or Binance Wallet", web3Step2: "Connect wallet on BNB Smart Chain", web3Step3: "Send / Swap / trade directly with your wallet",
         brandWeb3: "Web3 Wallet · BNB Smart Chain", brandAgent: "Agentic Wallet · BNB Smart Chain",
         loginStep1: "Enter your Agent ID (name.ai)",
-        loginStep2: "Open Binance AI (or copy prompt) → checkIn",
-        loginStep3: "Enter dashboard — this device trusts you for 24h",
+        loginStep2: "Open Binance AI (or copy prompt) → checkIn + rank NFT",
+        loginStep3: "Enter dashboard — commemorative NFT shown · trusted 24h",
         agentNeedOwnWallet: "Optional: connect the Agent ID owner wallet to verify this device now.",
         agentOwnerMismatch: "Connected Web3 wallet does not match this Agent ID.",
         agentUnverifiedBanner: "Not verified — return home to open Binance AI / checkIn.",
@@ -658,7 +1472,84 @@ const I18N = {
         wsCreate: "Create",
         wsTools: "Tools",
         wsAbout: "About",
+        wsProof: "Proof",
+        wsPulse: "Pulse",
         wsCreateHint: "Create Token / NFT → prompt for AI Agent.",
+        pulseTitle: "Agent Pulse Mode A",
+        pulseSub: "Agent ID only · 0.002 BNB · refund after 24h + AGPULSE",
+        pulseTrait1: "1 share / Agent / UTC day",
+        pulseTrait2: "100% BNB escrow refund — owner cannot withdraw",
+        pulseTrait3: "AGPULSE is experimental — may be worthless",
+        pulseBalLabel: "AGPULSE",
+        pulseTodayLabel: "Today",
+        pulseRewardLabel: "Reward / share",
+        pulseSharesLabel: "Total shares",
+        pulsePendingLabel: "Unlocks",
+        pulseMineLabel: "PulseMine (BSC)",
+        pulseEnterBtn: "Check-in + Enter Mode A (1 prompt)",
+        pulseClaimBtn: "Claim BNB + AGPULSE",
+        pulseDisclaimer: "Experimental. No promised returns / not passive income. AGPULSE may be worthless. You confirm every tx. Escrow BNB is claimable only by you. Not a Binance product.",
+        pulseTodayOk: "Can enter",
+        pulseTodayNo: "Already entered today",
+        pulsePendingContract: "PulseMine not configured yet.",
+        toastPulseEnter: "Copied Check-in + Enter Mode A prompt",
+        toastPulseClaim: "Copied Claim Pulse prompt",
+        toastPulseMineAddr: "Copied PulseMine address",
+        proofSoulbound: "SOULBOUND",
+        proofTitle: "AgentGate Proof",
+        proofSub: "On-chain badge · once per Agent ID · gas only",
+        proofTrait1: "Non-transferable (soulbound)",
+        proofTrait2: "No promised value or returns",
+        proofTrait3: "Gated by Agent ID (.ai)",
+        proofMintLabel: "Proof",
+        proofCheckLabel: "Check-in",
+        proofMintNone: "Not minted",
+        proofMintOk: "Minted",
+        proofCheckNone: "Not today",
+        proofCheckOk: "Checked in",
+        proofSupplyLabel: "Minted",
+        proofContractLabel: "Pass contract (BSC)",
+        proofCopyAddr: "Copy address",
+        toastProofAddr: "Copied Pass address",
+        proofMintCheckIn: "Mint Proof + Check-in (1 prompt)",
+        proofMintOnly: "Mint only",
+        proofCheckOnly: "Check-in only",
+        proofDisclaimer: "Free collectible (gas only). Not an investment. You confirm every step in your wallet / Binance AI.",
+        proofPendingContract: "Proof contract not deployed yet — prompt still includes mint + checkIn; address will be updated after deploy.",
+        toastProofPrompt: "Copied Mint Proof + Check-in prompt",
+        toastProofMintPrompt: "Copied mint Proof prompt",
+        tierScore: "Score",
+        tierRefresh: "Rank me (self)",
+        tierNote: "Enter Prompt to Check-in and Mint NFT Pass",
+        tierCaptionDash: "Tap NFT to enlarge · drag for 360° · back face shows score breakdown.",
+        nftStatsKicker: "SCORE BREAKDOWN",
+        nftStatsPts: "pts",
+        nftLightboxHint: "Drag to spin 360° · Esc / click backdrop to close",
+        nftChip: "GATE PASS",
+        nftMotto: "PASS",
+        nftBackRank: "RANK",
+        nftSpinHint: "Drag to spin 360°",
+        nftFanHint: "Tap to fan / close cards",
+        nftRankReady: "Rank NFT",
+        tierPlatinum: "PLATINUM",
+        tierGold: "GOLD",
+        tierSilver: "SILVER",
+        tierBronze: "BRONZE",
+        tierNeedAddr: "Enter your Agent ID then Check, or connect a wallet.",
+        tierLineAgentId: "Holds Agent ID (.ai)",
+        tierLineNoAgentId: "No Agent ID",
+        tierLineAgentIdFail: "Could not read Agent ID registry",
+        tierLineActivated: "AgentGate activated",
+        tierLineNotActivated: "Not activated on AgentGate",
+        tierLineCheckToday: "Checked in within 24h",
+        tierLineCheckWeek: "Checked in within 7 days",
+        tierLineCheckOld: "Has checked in before",
+        tierLineNoCheck: "No check-in yet",
+        tierLineGateFail: "Could not read AgentGate",
+        tierLineTx: "On-chain tx ≈ {n}",
+        tierLineTxFail: "Could not read tx count",
+        tierLineBal: "BNB balance (estimate)",
+        tierLineBalFail: "Could not read balance",
         approvals: "Approve",
         approvalsSub: "Token allowance",
         bridge: "Bridge",
@@ -734,7 +1625,7 @@ const I18N = {
         ],
         dashDisclaimerWeb3: "Web3 path: you sign transactions directly with your wallet. Check BNB Smart Chain before confirming. Not financial advice.",
         pillGate: "Agent ID gate", pillIntent: "AI Intent", pillChain: "BNB Smart Chain", pillSimulate: "Simulate first",
-        loginStep1: "Enter your Agent ID (name.ai)", loginStep2: "Open Binance AI (or copy prompt) → checkIn", loginStep3: "Enter dashboard — this device trusts you for 24h",
+        loginStep1: "Enter your Agent ID (name.ai)", loginStep2: "Open Binance AI (or copy prompt) → checkIn + rank NFT", loginStep3: "Enter dashboard — commemorative NFT shown · trusted 24h",
         loginClaim: "No Agent ID yet? <a href=\"https://www.binance.com/en/download\" target=\"_blank\" rel=\"noopener\">Claim in Binance App</a> (Wallet → Agent ID banner)",
         popular: "Popular", bnbMainnet: "BNB Smart Chain · Mainnet", agentNft: "Agent ID NFT", loading: "Loading...",
         networkChip: "Network: BNB Smart Chain",
@@ -997,8 +1888,8 @@ const I18N = {
         web3Step1: "安装 / 打开 MetaMask 或 Binance Wallet", web3Step2: "在 BNB Smart Chain 连接钱包", web3Step3: "用钱包直接转账 / Swap / 交易",
         brandWeb3: "Web3 Wallet · BNB Smart Chain", brandAgent: "Agentic Wallet · BNB Smart Chain",
         loginStep1: "输入你的 Agent ID (name.ai)",
-        loginStep2: "打开 Binance AI（或复制 prompt）→ checkIn",
-        loginStep3: "进入仪表盘 — 本机信任 24 小时",
+        loginStep2: "打开 Binance AI（或复制 prompt）→ checkIn + 等级 NFT",
+        loginStep3: "进入仪表盘 — 显示纪念 NFT · 本机信任 24 小时",
         agentNeedOwnWallet: "可选：连接持有钱包以立即验证本机。",
         agentOwnerMismatch: "当前 Web3 钱包与该 Agent ID 不匹配。",
         agentUnverifiedBanner: "尚未验证 — 请返回首页打开 Binance AI / checkIn。",
@@ -1042,7 +1933,84 @@ const I18N = {
         wsCreate: "Create",
         wsTools: "Tools",
         wsAbout: "介绍",
+        wsProof: "Proof",
+        wsPulse: "Pulse",
         wsCreateHint: "创建 Token / NFT → 生成 AI Agent prompt。",
+        pulseTitle: "Agent Pulse Mode A",
+        pulseSub: "仅 Agent ID · 0.002 BNB · 24h 后退回 + AGPULSE",
+        pulseTrait1: "每个 Agent / UTC 日 1 份",
+        pulseTrait2: "100% 退回托管 BNB — owner 无法提取",
+        pulseTrait3: "AGPULSE 为实验代币 — 可能无价值",
+        pulseBalLabel: "AGPULSE",
+        pulseTodayLabel: "今日",
+        pulseRewardLabel: "每份奖励",
+        pulseSharesLabel: "总份数",
+        pulsePendingLabel: "解锁时间",
+        pulseMineLabel: "PulseMine (BSC)",
+        pulseEnterBtn: "Check-in + Enter Mode A（一条 prompt）",
+        pulseClaimBtn: "领取 BNB + AGPULSE",
+        pulseDisclaimer: "实验性功能。不承诺回报 / 非被动收入。AGPULSE 可能无价值。每笔交易需你确认。托管 BNB 仅你可领取。非币安产品。",
+        pulseTodayOk: "今日可进入",
+        pulseTodayNo: "今日已进入",
+        pulsePendingContract: "PulseMine 尚未配置。",
+        toastPulseEnter: "已复制 Check-in + Enter Mode A prompt",
+        toastPulseClaim: "已复制 Claim Pulse prompt",
+        toastPulseMineAddr: "已复制 PulseMine 地址",
+        proofSoulbound: "SOULBOUND",
+        proofTitle: "AgentGate Proof",
+        proofSub: "链上徽章 · 每个 Agent ID 一次 · 仅付 gas",
+        proofTrait1: "不可转让（灵魂绑定）",
+        proofTrait2: "不承诺价值 / 收益",
+        proofTrait3: "由 Agent ID（.ai）门槛控制",
+        proofMintLabel: "Proof",
+        proofCheckLabel: "Check-in",
+        proofMintNone: "未铸造",
+        proofMintOk: "已铸造",
+        proofCheckNone: "今日未签到",
+        proofCheckOk: "已签到",
+        proofSupplyLabel: "已铸造",
+        proofContractLabel: "Pass 合约 (BSC)",
+        proofCopyAddr: "复制地址",
+        toastProofAddr: "已复制 Pass 地址",
+        proofMintCheckIn: "Mint Proof + Check-in（一条 prompt）",
+        proofMintOnly: "仅铸造",
+        proofCheckOnly: "仅签到",
+        proofDisclaimer: "免费收藏品（仅 gas）。不是投资。每一步需你在钱包 / Binance AI 中确认。",
+        proofPendingContract: "Proof 合约尚未部署 — prompt 仍含 mint + checkIn；部署后更新地址。",
+        toastProofPrompt: "已复制 Mint Proof + Check-in prompt",
+        toastProofMintPrompt: "已复制 mint Proof prompt",
+        tierScore: "Score",
+        tierRefresh: "自评等级（仅自己）",
+        tierNote: "输入 Prompt 以 Check-in 并 Mint NFT Pass",
+        tierCaptionDash: "点击 NFT 放大 · 拖动 360° 旋转 · 背面为评分明细。",
+        nftStatsKicker: "评分明细",
+        nftStatsPts: "分",
+        nftLightboxHint: "拖动旋转 360° · Esc / 点击背景关闭",
+        nftChip: "GATE PASS",
+        nftMotto: "PASS",
+        nftBackRank: "RANK",
+        nftSpinHint: "拖动旋转 360°",
+        nftFanHint: "点击展开 / 收起卡牌",
+        nftRankReady: "等级 NFT",
+        tierPlatinum: "PLATINUM",
+        tierGold: "GOLD",
+        tierSilver: "SILVER",
+        tierBronze: "BRONZE",
+        tierNeedAddr: "输入你的 Agent ID 并 Check，或连接钱包。",
+        tierLineAgentId: "持有 Agent ID（.ai）",
+        tierLineNoAgentId: "无 Agent ID",
+        tierLineAgentIdFail: "无法读取 Agent ID 注册表",
+        tierLineActivated: "已 Activate AgentGate",
+        tierLineNotActivated: "尚未 Activate AgentGate",
+        tierLineCheckToday: "24 小时内已签到",
+        tierLineCheckWeek: "7 天内已签到",
+        tierLineCheckOld: "曾经签到",
+        tierLineNoCheck: "尚未签到",
+        tierLineGateFail: "无法读取 AgentGate",
+        tierLineTx: "链上 tx ≈ {n}",
+        tierLineTxFail: "无法读取交易数",
+        tierLineBal: "BNB 余额（估算）",
+        tierLineBalFail: "无法读取余额",
         approvals: "Approve",
         approvalsSub: "代币授权",
         bridge: "Bridge",
@@ -1118,7 +2086,7 @@ const I18N = {
         ],
         dashDisclaimerWeb3: "Web3 路径：你用钱包直接签名交易。确认前请检查 BNB Smart Chain。不构成投资建议。",
         pillGate: "Agent ID 门禁", pillIntent: "AI Intent", pillChain: "BNB Smart Chain", pillSimulate: "先模拟",
-        loginStep1: "输入你的 Agent ID (name.ai)", loginStep2: "打开 Binance AI（或复制 prompt）→ checkIn", loginStep3: "进入仪表盘 — 本机信任 24 小时",
+        loginStep1: "输入你的 Agent ID (name.ai)", loginStep2: "打开 Binance AI（或复制 prompt）→ checkIn + 等级 NFT", loginStep3: "进入仪表盘 — 显示纪念 NFT · 本机信任 24 小时",
         loginClaim: "还没有 Agent ID？<a href=\"https://www.binance.com/en/download\" target=\"_blank\" rel=\"noopener\">在 Binance App 领取</a>（钱包 → Agent ID 横幅）",
         popular: "热门", bnbMainnet: "BNB Smart Chain · 主网", agentNft: "Agent ID NFT", loading: "加载中...",
         networkChip: "网络：BNB Smart Chain",
@@ -1356,6 +2324,7 @@ function setLanguage(lang) {
     document.documentElement.lang = lang === "zh" ? "zh-CN" : lang;
     syncLangButtons();
     updateUI();
+    if (lastTierResult) paintTierBadge(lastTierResult);
     // Cập nhật list cổ phiếu nếu đang mở tab
     const stocksSec = document.getElementById("stocksSection");
     if (stocksSec && stocksSec.style.display !== "none") renderStockList();
@@ -1990,30 +2959,44 @@ function syncAgentOwnershipUi() {
 
 function buildSessionCheckInPrompt(_owner, _handle) {
     // Privacy: không đưa name.ai / địa chỉ ví vào prompt.
+    // One prompt = login verify (checkIn) + commemorative rank NFT mint when contract is live.
     const gate = getAgentGateAddress();
+    const proof = getProofAddress();
+    const method = getProofMethod();
+    const cfg = window.AGENT_GATE_CONFIG || {};
+    const proofDeployed = !!(cfg.proofAddress && ethers.utils.isAddress(cfg.proofAddress));
     agentVerifySessionId = `ag-sess-${Date.now().toString(36)}`;
     const sessionId = agentVerifySessionId;
     const lines = [
-        "AgentGate device verify on BNB Smart Chain (NO funds moved).",
+        "AgentGate login + commemorative rank NFT on BNB Smart Chain.",
+        "Gas only. No funds moved. No promised returns / investment value.",
         `Locale: ${currentLang || "en"}. ${promptLocaleHint()}`,
         "",
         "Do this with MY already-bound Agent wallet only:",
         gate
-            ? `1) Call checkIn() on AgentGate ${gate}`
+            ? `1) Call checkIn() on AgentGate ${gate} (device verify / access).`
             : "1) AgentGate address missing — ask me to configure config.js, then checkIn().",
-        "2) Simulate first; wait for my explicit confirm before signing.",
-        "3) Return tx hash only.",
-        `4) Echo challenge id: ${sessionId}`,
+        proofDeployed
+            ? `2) If I have not minted yet, call ${method} on Proof contract ${proof} (soulbound rank badge, once per Agent ID, value 0).`
+            : `2) Rank Proof mint contract is pending — skip mint for now; after checkIn I will see my commemorative rank NFT in the AgentGate dashboard UI.`,
+        "3) Simulate each step; wait for my explicit confirm before signing.",
+        "4) Return tx hash(es) only.",
+        `5) Echo challenge id: ${sessionId}`,
         "",
         "Never ask for addresses, name.ai, seeds, keys, or pairing codes.",
         "Never look up third-party Agent IDs.",
         "",
         `INTENT: ${JSON.stringify({
             protocol: "AgentGate",
-            type: "gate.checkIn",
+            type: "gate.loginAndRankNft",
             chainId: 56,
-            params: { method: "checkIn()", contract: gate || null, sessionId, purpose: "device_trust_24h" },
-            policy: { simulateFirst: true, confirmBeforeSign: true, neverAskUserForAddress: true }
+            params: {
+                checkIn: { method: "checkIn()", contract: gate || null },
+                mintProof: proofDeployed ? { method, contract: proof } : null,
+                sessionId,
+                purpose: "device_trust_24h_and_rank_nft"
+            },
+            policy: { simulateFirst: true, confirmBeforeSign: true, neverAskUserForAddress: true, noReturnPromises: true }
         })}`
     ];
     return lines.join("\n");
@@ -2053,6 +3036,10 @@ async function completeAgentSessionLogin(owner, handle) {
     showToast(t("agentVerifyOk"), 2800);
     await enterDashboard(owner, handle, true);
     applyModeChrome();
+    try {
+        const ranked = await refreshAgentTier(owner);
+        if (ranked?.tier) showToast(`${t("nftRankReady")}: ${tierLabel(ranked.tier)}`, 3600);
+    } catch (_) {}
 }
 
 async function pollAgentSessionVerify() {
@@ -2164,6 +3151,8 @@ async function finishAgentIdLogin() {
 
         pendingAgentLogin = null;
         if (resultDiv) { resultDiv.className = ""; resultDiv.innerText = ""; }
+        lastTierAddress = ownerAddr;
+        refreshAgentTier(ownerAddr).catch(() => {});
 
         // Device trust 24h for this Agent owner → skip prompt
         const trust = readAgentTrust();
@@ -2784,9 +3773,12 @@ async function disconnectWallet() {
     stopAgentVerifyUi();
 
     document.getElementById("dashboard").style.display = "none";
+    const loginLayout = document.getElementById("loginLayout");
+    if (loginLayout) loginLayout.style.display = "";
     const login = document.getElementById("loginSection");
     if (login) login.style.display = "block";
     placeSettingsHost("login");
+    paintTierBadge(lastTierResult || { tier: "bronze", score: null, lines: [] });
     const resultDiv = document.getElementById("result");
     if (resultDiv) { resultDiv.className = "ok"; resultDiv.innerText = t("disconnected"); }
     const statusEl = document.getElementById("walletStatus");
@@ -2885,6 +3877,8 @@ function placeSettingsHost(mode) {
 }
 
 async function enterDashboard(address, name, hasAgent) {
+    const loginLayout = document.getElementById("loginLayout");
+    if (loginLayout) loginLayout.style.display = "none";
     const login = document.getElementById("loginSection");
     if (login) login.style.display = "none";
     document.getElementById("dashboard").style.display = "block";
@@ -2951,6 +3945,7 @@ async function enterDashboard(address, name, hasAgent) {
     startPortfolioAutoRefresh();
     await refreshGateStatus(address);
     renderIntentHistory();
+    refreshAgentTier(address).catch(() => {});
 
     // Auto check-in once/day when EOA with Agent ID is connected
     if (verified && isWeb3Mode && signer && getAgentGateAddress()) {
@@ -3116,7 +4111,9 @@ function isWeb3TradeMode() {
 }
 
 function setDashWorkspace(panel) {
-    const allowed = isWeb3TradeMode() ? ["trade", "about"] : ["trade", "create", "tools", "about"];
+    const allowed = isWeb3TradeMode()
+        ? ["trade", "proof", "pulse", "about"]
+        : ["trade", "proof", "pulse", "create", "tools", "about"];
     dashWorkspacePanel = allowed.includes(panel) ? panel : "trade";
     try { localStorage.setItem("agentgate_dash_panel", dashWorkspacePanel); } catch (_) {}
     document.querySelectorAll("#dashWorkspaceSeg .dash-seg-btn").forEach(btn => {
@@ -3137,6 +4134,8 @@ function setDashWorkspace(panel) {
         p.hidden = !show;
     });
     if (dashWorkspacePanel === "about") refreshAboutUniqueAgents();
+    if (dashWorkspacePanel === "proof") refreshProofUi();
+    if (dashWorkspacePanel === "pulse") refreshPulseUi();
 }
 
 function applyModeChrome() {
@@ -5702,6 +6701,37 @@ function handoffCancelOrder() {
 document.querySelectorAll("#dashWorkspaceSeg .dash-seg-btn").forEach(btn => {
     btn.addEventListener("click", () => setDashWorkspace(btn.dataset.dashPanel || "trade"));
 });
+bindLoginNftFan();
+bindNftViewer();
+paintTierBadge({ tier: "bronze", score: null, lines: [t("tierNeedAddr")] });
+
+document.getElementById("proofMintCheckInBtn")?.addEventListener("click", () => {
+    handoffProofPrompt({ includeMint: true, includeCheckIn: true });
+});
+document.getElementById("proofMintOnlyBtn")?.addEventListener("click", () => {
+    handoffProofPrompt({ includeMint: true, includeCheckIn: false });
+});
+document.getElementById("proofCheckOnlyBtn")?.addEventListener("click", () => {
+    if (!isWeb3Mode || !signer) {
+        handoffProofPrompt({ includeMint: false, includeCheckIn: true });
+        return;
+    }
+    onChainCheckIn().then(() => refreshProofUi()).catch(() => {});
+});
+document.getElementById("proofCopyAddrBtn")?.addEventListener("click", () => {
+    const addr = getProofAddress();
+    if (!addr) return;
+    navigator.clipboard.writeText(addr).then(() => showToast(t("toastProofAddr"))).catch(() => {});
+});
+paintProofContractUi();
+document.getElementById("pulseEnterBtn")?.addEventListener("click", () => handoffPulseEnterPrompt());
+document.getElementById("pulseClaimBtn")?.addEventListener("click", () => handoffPulseClaimPrompt());
+document.getElementById("pulseCopyMineBtn")?.addEventListener("click", () => {
+    const addr = getPulseMineAddress();
+    if (!addr) return;
+    navigator.clipboard.writeText(addr).then(() => showToast(t("toastPulseMineAddr"))).catch(() => {});
+});
+
 document.getElementById("approveBtn")?.addEventListener("click", () => openApproveModal());
 document.getElementById("bridgeBtn")?.addEventListener("click", () => openBridgeModal());
 document.getElementById("cancelOrderBtn")?.addEventListener("click", () => openCancelOrderModal());
