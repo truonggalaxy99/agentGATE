@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 80 80" fill="none" role="img" aria-hidden="true">
+  <defs>
+    <linearGradient id="box" x1="12" y1="28" x2="68" y2="72" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFE08A"/>
+      <stop offset=".45" stop-color="#F0B90B"/>
+      <stop offset="1" stop-color="#C99400"/>
+    </linearGradient>
+    <linearGradient id="lid" x1="10" y1="18" x2="70" y2="36" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF3C4"/>
+      <stop offset="1" stop-color="#F0B90B"/>
+    </linearGradient>
+    <linearGradient id="ribbon" x1="36" y1="14" x2="44" y2="72" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFF8E6"/>
+      <stop offset="1" stop-color="#E8C547"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="40" cy="72" rx="22" ry="4" fill="#F0B90B" opacity=".28"/>
+  <rect x="14" y="30" width="52" height="38" rx="6" fill="url(#box)"/>
+  <rect x="10" y="22" width="60" height="14" rx="5" fill="url(#lid)"/>
+  <rect x="36" y="22" width="8" height="46" rx="2" fill="url(#ribbon)"/>
+  <path d="M40 22c-7-10-18-12-22-6 3 7 14 8 22 6Z" fill="#FFE9A8" stroke="#C99400" stroke-width="1.2"/>
+  <path d="M40 22c7-10 18-12 22-6-3 7-14 8-22 6Z" fill="#FFF6D6" stroke="#C99400" stroke-width="1.2"/>
+  <circle cx="40" cy="22" r="3.2" fill="#FFF8E6" stroke="#C99400" stroke-width="1.2"/>
+  <path d="M20 49h40" stroke="#C99400" stroke-opacity=".35" stroke-width="1.5"/>
+</svg>

@@ -52,6 +52,225 @@ function getPulseShareCost() {
     return (cfg.pulseShareCost || "0.002").trim() || "0.002";
 }
 
+const REF_LS_FROM = "agentgate_ref_from";
+const REF_LS_CREDITED = "agentgate_ref_credited";
+const REF_POINT_PER = 100;
+const REF_REDEEM_COST = 100;
+const REF_DEFAULT_MILESTONES = [
+    { at: 1, bonus: 0, id: "first" },
+    { at: 3, bonus: 50, id: "scout" },
+    { at: 5, bonus: 100, id: "radar" },
+    { at: 10, bonus: 200, id: "refscout" }
+];
+let lastRefPayload = null;
+
+function normalizeRefHandle(raw) {
+    let s = String(raw || "").trim().toLowerCase();
+    if (!s) return "";
+    if (s.startsWith("@")) s = s.slice(1);
+    s = s.replace(/^https?:\/\/[^?]+\?ref=/i, "");
+    if (!s.endsWith(".ai")) s = `${s.replace(/\.ai$/i, "")}.ai`;
+    const base = s.replace(/\.ai$/, "");
+    if (!/^[a-z0-9]{3,15}$/.test(base)) return "";
+    return `${base}.ai`;
+}
+
+function captureRefFromUrl() {
+    try {
+        const u = new URL(window.location.href);
+        const ref = normalizeRefHandle(u.searchParams.get("ref") || "");
+        if (!ref) return;
+        const prev = normalizeRefHandle(localStorage.getItem(REF_LS_FROM) || "");
+        if (!prev) localStorage.setItem(REF_LS_FROM, ref);
+        u.searchParams.delete("ref");
+        const clean = u.pathname + (u.searchParams.toString() ? `?${u.searchParams}` : "") + u.hash;
+        window.history.replaceState({}, "", clean || "/");
+    } catch (_) {}
+}
+
+function getMyRefHandle() {
+    const raw = String(currentAgentName || document.getElementById("agentInput")?.value || "").trim();
+    return normalizeRefHandle(raw);
+}
+
+function buildRefShareLink(handle) {
+    const h = normalizeRefHandle(handle) || "yourname.ai";
+    return `https://agentgate-hazel.vercel.app?ref=${encodeURIComponent(h)}`;
+}
+
+function paintRefShareUi() {
+    const mine = getMyRefHandle();
+    const link = buildRefShareLink(mine || "yourname.ai");
+    const loginLink = document.getElementById("loginRefLink");
+    const dashLink = document.getElementById("dashRefLink");
+    if (loginLink) loginLink.textContent = link;
+    if (dashLink) dashLink.textContent = link;
+}
+
+function paintRefMilestones(el, milestones, invites) {
+    if (!el) return;
+    const list = (milestones && milestones.length ? milestones : REF_DEFAULT_MILESTONES).map((m) => ({
+        ...m,
+        hit: m.hit != null ? m.hit : invites >= m.at
+    }));
+    el.innerHTML = `
+        <p class="ref-ms-label">${t("refMilestones")}</p>
+        <div class="ref-ms-row">
+            ${list.map((m) => `
+                <span class="ref-ms-chip${m.hit ? " is-on" : ""}" title="+${m.bonus || 0}">
+                    <b>${m.at}</b>
+                    <i>${m.bonus ? `+${m.bonus}` : t("refMsBadge")}</i>
+                </span>
+            `).join("")}
+        </div>
+    `;
+}
+
+function paintRefTop(el, top, limit = 5) {
+    if (!el) return;
+    const rows = Array.isArray(top) ? top.slice(0, limit) : [];
+    if (!rows.length) {
+        el.innerHTML = `<li class="ref-lb-empty">${t("refTopEmpty")}</li>`;
+        return;
+    }
+    el.innerHTML = rows.map((row, i) => `
+        <li>
+            <span class="ref-lb-rank">${i + 1}</span>
+            <span class="ref-lb-name">${String(row.ref || "").replace(/</g, "")}</span>
+            <span class="ref-lb-pts">${Number(row.points || 0)}</span>
+        </li>
+    `).join("");
+}
+
+function setRefStat(id, value) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = String(value ?? 0);
+}
+
+function syncRefRedeemButtons(points) {
+    const enough = Number(points || 0) >= REF_REDEEM_COST;
+    ["loginRefRedeemBtn", "dashRefRedeemBtn"].forEach((id) => {
+        const btn = document.getElementById(id);
+        if (!btn) return;
+        btn.disabled = !getMyRefHandle() || !enough;
+        btn.title = !getMyRefHandle()
+            ? t("refNeedHandle")
+            : enough
+                ? t("refRedeem")
+                : t("refNeedPoints");
+    });
+}
+
+function applyRefPayload(data) {
+    lastRefPayload = data || lastRefPayload;
+    const d = lastRefPayload || {};
+    const pts = d.points || 0;
+    const invites = d.inviteCount || 0;
+    const ag = d.agpulseTrial || 0;
+    setRefStat("loginRefPoints", pts);
+    setRefStat("loginRefInvites", invites);
+    setRefStat("loginRefAgpulse", ag);
+    setRefStat("dashRefPoints", pts);
+    setRefStat("dashRefInvites", invites);
+    setRefStat("dashRefAgpulse", ag);
+    paintRefMilestones(document.getElementById("loginRefMilestones"), d.milestones, invites);
+    paintRefMilestones(document.getElementById("dashRefMilestones"), d.milestones, invites);
+    syncRefRedeemButtons(pts);
+    paintRefShareUi();
+}
+
+async function refreshRefStats() {
+    const mine = getMyRefHandle();
+    paintRefShareUi();
+    try {
+        const q = mine ? `?ref=${encodeURIComponent(mine)}` : "";
+        const res = await fetch(`/api/ref${q}`, { cache: "no-store" });
+        const data = await res.json();
+        if (!data || data.ok === false) throw new Error("ref");
+        applyRefPayload(data);
+        if (mine) {
+            try {
+                localStorage.setItem(`agentgate_ref_pts_${mine}`, String(data.points || 0));
+                localStorage.setItem(`agentgate_ref_ag_${mine}`, String(data.agpulseTrial || 0));
+            } catch (_) {}
+        }
+    } catch (_) {
+        const cachedPts = mine ? (localStorage.getItem(`agentgate_ref_pts_${mine}`) || "0") : "0";
+        const cachedAg = mine ? (localStorage.getItem(`agentgate_ref_ag_${mine}`) || "0") : "0";
+        applyRefPayload({
+            points: Number(cachedPts) || 0,
+            inviteCount: lastRefPayload?.inviteCount || 0,
+            agpulseTrial: Number(cachedAg) || 0,
+            milestones: lastRefPayload?.milestones || REF_DEFAULT_MILESTONES,
+            top: lastRefPayload?.top || []
+        });
+    }
+}
+
+async function redeemRefPoints() {
+    const mine = getMyRefHandle();
+    if (!mine) {
+        showToast(t("refNeedHandle"), 2800);
+        return;
+    }
+    const btns = ["loginRefRedeemBtn", "dashRefRedeemBtn"]
+        .map((id) => document.getElementById(id))
+        .filter(Boolean);
+    btns.forEach((b) => { b.disabled = true; });
+    try {
+        const res = await fetch("/api/ref", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ action: "redeem", ref: mine })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data.ok) {
+            showToast(
+                data.error === "insufficient" ? t("refNeedPoints") : t("toastRefRedeemFail"),
+                3200
+            );
+            syncRefRedeemButtons(data.points ?? lastRefPayload?.points ?? 0);
+            return;
+        }
+        applyRefPayload(data);
+        showToast(t("toastRefRedeemOk"), 3600);
+    } catch (_) {
+        showToast(t("toastRefRedeemFail"), 3200);
+        syncRefRedeemButtons(lastRefPayload?.points || 0);
+    }
+}
+
+async function creditReferrerOnCheckIn(inviteeAddress, inviteeHandle) {
+    const ref = normalizeRefHandle(localStorage.getItem(REF_LS_FROM) || "");
+    const me = normalizeRefHandle(inviteeHandle || "");
+    const addr = String(inviteeAddress || "").toLowerCase();
+    if (!ref || !addr || !addr.startsWith("0x")) return;
+    if (me && me === ref) return;
+    try {
+        if (localStorage.getItem(`${REF_LS_CREDITED}_${addr}`) === "1") return;
+    } catch (_) {}
+    try {
+        const res = await fetch("/api/ref", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ ref, invitee: addr, inviteeHandle: me || null })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (data && (data.ok || data.duplicate)) {
+            try { localStorage.setItem(`${REF_LS_CREDITED}_${addr}`, "1"); } catch (_) {}
+            if (data.credited) showToast(t("toastRefCredited"), 3200);
+            if (data.welcomeToInvitee) showToast(t("toastRefWelcome"), 3200);
+            refreshRefStats().catch(() => {});
+        }
+    } catch (_) {}
+}
+
+function copyRefLink() {
+    const mine = getMyRefHandle();
+    const link = buildRefShareLink(mine || "yourname.ai");
+    navigator.clipboard.writeText(link).then(() => showToast(t("toastRefCopied"))).catch(() => {});
+}
+
 const AGENT_PULSE_MINE_ABI = [
     "function enterFree() payable",
     "function claimFree(uint256 positionId)",
@@ -1018,7 +1237,28 @@ const I18N = {
         pulseSub: "Chỉ Agent ID · 0.002 BNB · hoàn sau 24h + AGPULSE",
         pulseTrait1: "1 share / Agent / ngày UTC",
         pulseTrait2: "Hoàn 100% BNB escrow — owner không rút được",
-        pulseTrait3: "AGPULSE thử nghiệm — có thể vô giá trị",
+        pulseTrait3: "AGPULSE thử nghiệm",
+        refKicker: "REF",
+        refTitle: "Mời bạn → nhận điểm",
+        refBlurb: "Điểm ref có thể đổi thành AGPULSE thử nghiệm.",
+        refCopy: "Sao chép link",
+        refPointsLabel: "Điểm của bạn",
+        refInvitesLabel: "Đã mời",
+        refAgpulseLabel: "AGPULSE trial",
+        refRate: "100 điểm = 1 AGPULSE thử nghiệm",
+        refMilestones: "Mốc thưởng",
+        refMsBadge: "badge",
+        refTopWeek: "Top tuần",
+        refTopEmpty: "Chưa có ai trên bảng — hãy là người đầu",
+        refPublicHint: "Nhập name.ai ở form đăng nhập để lấy link mời & đổi thưởng.",
+        refRedeem: "Đổi ngay · 100 điểm = 1 AGPULSE",
+        refNeedHandle: "Nhập name.ai trước khi đổi / copy link",
+        refNeedPoints: "Cần đủ 100 điểm để đổi",
+        toastRefCopied: "Đã copy link ref",
+        toastRefCredited: "Đã ghi nhận ref (điểm cho người mời)",
+        toastRefWelcome: "Bạn nhận +50 điểm welcome từ Soft Ref",
+        toastRefRedeemOk: "Đã đổi 100 điểm → +1 AGPULSE trial",
+        toastRefRedeemFail: "Đổi thất bại — thử lại sau",
         pulseBalLabel: "AGPULSE",
         pulseTodayLabel: "Hôm nay",
         pulseRewardLabel: "Reward / share",
@@ -1479,7 +1719,28 @@ const I18N = {
         pulseSub: "Agent ID only · 0.002 BNB · refund after 24h + AGPULSE",
         pulseTrait1: "1 share / Agent / UTC day",
         pulseTrait2: "100% BNB escrow refund — owner cannot withdraw",
-        pulseTrait3: "AGPULSE is experimental — may be worthless",
+        pulseTrait3: "AGPULSE is experimental",
+        refKicker: "REF",
+        refTitle: "Invite friends → earn points",
+        refBlurb: "Ref points can be redeemed for trial AGPULSE.",
+        refCopy: "Copy link",
+        refPointsLabel: "Your points",
+        refInvitesLabel: "Invites",
+        refAgpulseLabel: "AGPULSE trial",
+        refRate: "100 points = 1 trial AGPULSE",
+        refMilestones: "Milestones",
+        refMsBadge: "badge",
+        refTopWeek: "Weekly top",
+        refTopEmpty: "Leaderboard empty — be the first",
+        refPublicHint: "Enter your name.ai in the login form to get your invite link & redeem.",
+        refRedeem: "Redeem now · 100 pts = 1 AGPULSE",
+        refNeedHandle: "Enter your name.ai before redeem / copy",
+        refNeedPoints: "Need 100 points to redeem",
+        toastRefCopied: "Referral link copied",
+        toastRefCredited: "Referral recorded for your inviter",
+        toastRefWelcome: "Welcome bonus +50 Soft Ref points",
+        toastRefRedeemOk: "Redeemed 100 pts → +1 AGPULSE trial",
+        toastRefRedeemFail: "Redeem failed — try again",
         pulseBalLabel: "AGPULSE",
         pulseTodayLabel: "Today",
         pulseRewardLabel: "Reward / share",
@@ -1940,7 +2201,28 @@ const I18N = {
         pulseSub: "仅 Agent ID · 0.002 BNB · 24h 后退回 + AGPULSE",
         pulseTrait1: "每个 Agent / UTC 日 1 份",
         pulseTrait2: "100% 退回托管 BNB — owner 无法提取",
-        pulseTrait3: "AGPULSE 为实验代币 — 可能无价值",
+        pulseTrait3: "AGPULSE 为实验代币",
+        refKicker: "REF",
+        refTitle: "邀请好友 → 得积分",
+        refBlurb: "推荐积分可兑换试用 AGPULSE。",
+        refCopy: "复制链接",
+        refPointsLabel: "你的积分",
+        refInvitesLabel: "已邀请",
+        refAgpulseLabel: "AGPULSE 试用",
+        refRate: "100 积分 = 1 试用 AGPULSE",
+        refMilestones: "里程碑",
+        refMsBadge: "徽章",
+        refTopWeek: "本周榜",
+        refTopEmpty: "榜单为空 — 成为第一名",
+        refPublicHint: "在登录表单输入 name.ai 获取邀请链接并兑换。",
+        refRedeem: "立即兑换 · 100 积分 = 1 AGPULSE",
+        refNeedHandle: "请先输入 name.ai 再兑换 / 复制",
+        refNeedPoints: "需要 100 积分才能兑换",
+        toastRefCopied: "已复制邀请链接",
+        toastRefCredited: "已为邀请人记录积分",
+        toastRefWelcome: "欢迎奖励 +50 Soft Ref 积分",
+        toastRefRedeemOk: "已兑换 100 积分 → +1 AGPULSE 试用",
+        toastRefRedeemFail: "兑换失败 — 请稍后重试",
         pulseBalLabel: "AGPULSE",
         pulseTodayLabel: "今日",
         pulseRewardLabel: "每份奖励",
@@ -2325,6 +2607,8 @@ function setLanguage(lang) {
     syncLangButtons();
     updateUI();
     if (lastTierResult) paintTierBadge(lastTierResult);
+    if (lastRefPayload) applyRefPayload(lastRefPayload);
+    else refreshRefStats().catch(() => {});
     // Cập nhật list cổ phiếu nếu đang mở tab
     const stocksSec = document.getElementById("stocksSection");
     if (stocksSec && stocksSec.style.display !== "none") renderStockList();
@@ -3928,6 +4212,12 @@ async function enterDashboard(address, name, hasAgent) {
 
     currentAgentName = display;
     updateDashAgentHeader(display, verified && (isWeb3Mode || agentOwnershipVerified));
+    paintRefShareUi();
+    refreshRefStats().catch(() => {});
+    // Soft Ref: credit ?ref= inviter once when invitee enters with Agent ID
+    if (verified && address) {
+        creditReferrerOnCheckIn(address, display).catch(() => {});
+    }
 
     const scan = document.getElementById("bscscanLink");
     if (scan) {
@@ -6705,18 +6995,20 @@ bindLoginNftFan();
 bindNftViewer();
 paintTierBadge({ tier: "bronze", score: null, lines: [t("tierNeedAddr")] });
 
+captureRefFromUrl();
+paintRefShareUi();
+document.getElementById("loginRefCopyBtn")?.addEventListener("click", () => copyRefLink());
+document.getElementById("dashRefCopyBtn")?.addEventListener("click", () => copyRefLink());
+document.getElementById("loginRefRedeemBtn")?.addEventListener("click", () => redeemRefPoints());
+document.getElementById("dashRefRedeemBtn")?.addEventListener("click", () => redeemRefPoints());
+document.getElementById("agentInput")?.addEventListener("input", () => {
+    paintRefShareUi();
+    refreshRefStats().catch(() => {});
+});
+refreshRefStats().catch(() => {});
+
 document.getElementById("proofMintCheckInBtn")?.addEventListener("click", () => {
     handoffProofPrompt({ includeMint: true, includeCheckIn: true });
-});
-document.getElementById("proofMintOnlyBtn")?.addEventListener("click", () => {
-    handoffProofPrompt({ includeMint: true, includeCheckIn: false });
-});
-document.getElementById("proofCheckOnlyBtn")?.addEventListener("click", () => {
-    if (!isWeb3Mode || !signer) {
-        handoffProofPrompt({ includeMint: false, includeCheckIn: true });
-        return;
-    }
-    onChainCheckIn().then(() => refreshProofUi()).catch(() => {});
 });
 document.getElementById("proofCopyAddrBtn")?.addEventListener("click", () => {
     const addr = getProofAddress();

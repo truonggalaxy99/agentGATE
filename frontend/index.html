@@ -13,8 +13,8 @@
     <meta name="theme-color" content="#0B0E11">
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
-    <link rel="stylesheet" href="style.css?v=20261128w">
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="style.css?v=20261128ag">
     <script src="config.js"></script>
 </head>
 <body>
@@ -69,6 +69,37 @@
                 <img src="assets/favicon.svg" width="28" height="28" alt="" class="brand-logo">
                 <span>AgentGate</span>
             </div>
+            <aside class="ref-banner" id="loginRefBanner" aria-label="Referral">
+                <div class="ref-banner-glow" aria-hidden="true"></div>
+                <div class="ref-banner-head">
+                    <img class="ref-gift" src="assets/ref-gift.svg" width="56" height="56" alt="" aria-hidden="true">
+                    <div class="ref-banner-copyblock">
+                        <p class="ref-banner-kicker" data-i18n="refKicker">REF</p>
+                        <p class="ref-banner-title" data-i18n="refTitle">Mời bạn → nhận điểm</p>
+                        <p class="ref-banner-blurb" data-i18n="refBlurb">Điểm ref có thể đổi thành AGPULSE thử nghiệm.</p>
+                    </div>
+                </div>
+                <div class="ref-dash-stats ref-login-stats">
+                    <div class="ref-stat">
+                        <span data-i18n="refPointsLabel">Điểm của bạn</span>
+                        <strong id="loginRefPoints">0</strong>
+                    </div>
+                    <div class="ref-stat">
+                        <span data-i18n="refInvitesLabel">Đã mời</span>
+                        <strong id="loginRefInvites">0</strong>
+                    </div>
+                    <div class="ref-stat">
+                        <span data-i18n="refAgpulseLabel">AGPULSE trial</span>
+                        <strong id="loginRefAgpulse">0</strong>
+                    </div>
+                </div>
+                <div class="ref-milestones" id="loginRefMilestones" aria-label="Milestones"></div>
+                <button type="button" class="ref-redeem-btn" id="loginRefRedeemBtn" data-i18n="refRedeem">Đổi ngay · 100 điểm = 1 AGPULSE</button>
+                <div class="ref-banner-row">
+                    <code class="ref-banner-link" id="loginRefLink">https://agentgate-hazel.vercel.app?ref=yourname.ai</code>
+                    <button type="button" class="ref-banner-copy" id="loginRefCopyBtn" data-i18n="refCopy">Sao chép link</button>
+                </div>
+            </aside>
             <h1 data-i18n-html="loginTitle">AgentGate</h1>
             <p class="subtitle" id="subtitle" data-i18n="subtitle">Chọn một luồng để bắt đầu — Web3 ví thường hoặc AI Agent (Agent ID của bạn).</p>
 
@@ -216,45 +247,80 @@
 
         <div id="dashboard" class="dashboard" style="display:none;">
             <div class="stage-layout dash-stage">
-            <aside class="tier-rail" id="dashTierRail" aria-label="AgentGate Proof NFT">
-                <div class="nft-scene nft-scene-dash" data-nft-scene data-nft-open role="button" tabindex="0" aria-label="Xem NFT">
-                    <div class="nft-slab tier-bronze nft-slab-thick" data-dash-slab>
-                        <div class="nft-card" data-tier-badge data-tier="bronze" data-nft-card>
-                            <div class="nft-rim" aria-hidden="true"></div>
-                            <div class="nft-side nft-side-right" aria-hidden="true"></div>
-                            <div class="nft-side nft-side-left" aria-hidden="true"></div>
-                            <div class="nft-side nft-side-top" aria-hidden="true"></div>
-                            <div class="nft-side nft-side-bottom" aria-hidden="true"></div>
-                            <div class="nft-face nft-front">
-                                <div class="nft-plate">
-                                    <div class="nft-sheen" aria-hidden="true"></div>
-                                    <div class="nft-spark" aria-hidden="true"></div>
-                                    <div class="nft-hex" aria-hidden="true"></div>
-                                    <div class="nft-top">
-                                        <span class="nft-chip" data-i18n="nftChip">GATE PASS</span>
-                                        <span class="nft-motto" data-i18n="nftMotto">PASS</span>
-                                    </div>
-                                    <p class="nft-handle" data-nft-handle>yourname</p>
-                                    <p class="nft-domain" data-nft-domain>—.ai</p>
-                                    <div class="nft-foot">
-                                        <span class="nft-brand">AgentGate</span>
-                                        <span class="nft-glyph" aria-hidden="true">⬡</span>
-                                    </div>
-                                </div>
+            <aside class="tier-rail dash-tier-with-ref" id="dashTierRail" aria-label="AgentGate Proof NFT">
+                <div class="dash-tier-row">
+                    <aside class="ref-banner ref-banner-side" id="dashRefBanner" aria-label="Referral">
+                        <div class="ref-banner-glow" aria-hidden="true"></div>
+                        <div class="ref-banner-head">
+                            <img class="ref-gift" src="assets/ref-gift.svg" width="48" height="48" alt="" aria-hidden="true">
+                            <div class="ref-banner-copyblock">
+                                <p class="ref-banner-kicker" data-i18n="refKicker">REF</p>
+                                <p class="ref-banner-title" data-i18n="refTitle">Mời bạn → nhận điểm</p>
+                                <p class="ref-banner-blurb" data-i18n="refBlurb">Điểm ref có thể đổi thành AGPULSE thử nghiệm.</p>
                             </div>
-                            <div class="nft-face nft-back">
-                                <div class="nft-plate nft-plate-back nft-plate-stats">
-                                    <div class="nft-sheen" aria-hidden="true"></div>
-                                    <p class="nft-stats-kicker" data-i18n="nftStatsKicker">CHI TIẾT ĐIỂM</p>
-                                    <p class="nft-stats-score"><strong data-nft-score>—</strong><span data-i18n="nftStatsPts">điểm</span></p>
-                                    <p class="nft-stats-tier" data-nft-tier-label>BRONZE</p>
-                                    <ul class="nft-stats-list" data-nft-lines></ul>
+                        </div>
+                        <div class="ref-dash-stats ref-side-stats" aria-live="polite">
+                            <div class="ref-stat">
+                                <span data-i18n="refPointsLabel">Điểm của bạn</span>
+                                <strong id="dashRefPoints">0</strong>
+                            </div>
+                            <div class="ref-stat">
+                                <span data-i18n="refInvitesLabel">Đã mời</span>
+                                <strong id="dashRefInvites">0</strong>
+                            </div>
+                            <div class="ref-stat">
+                                <span data-i18n="refAgpulseLabel">AGPULSE trial</span>
+                                <strong id="dashRefAgpulse">0</strong>
+                            </div>
+                        </div>
+                        <div class="ref-milestones" id="dashRefMilestones" aria-label="Milestones"></div>
+                        <button type="button" class="ref-redeem-btn" id="dashRefRedeemBtn" data-i18n="refRedeem">Đổi ngay · 100 điểm = 1 AGPULSE</button>
+                        <div class="ref-banner-row">
+                            <code class="ref-banner-link" id="dashRefLink">—</code>
+                            <button type="button" class="ref-banner-copy" id="dashRefCopyBtn" data-i18n="refCopy">Sao chép link</button>
+                        </div>
+                    </aside>
+                    <div class="dash-nft-col">
+                        <div class="nft-scene nft-scene-dash" data-nft-scene data-nft-open role="button" tabindex="0" aria-label="Xem NFT">
+                            <div class="nft-slab tier-bronze nft-slab-thick" data-dash-slab>
+                                <div class="nft-card" data-tier-badge data-tier="bronze" data-nft-card>
+                                    <div class="nft-rim" aria-hidden="true"></div>
+                                    <div class="nft-side nft-side-right" aria-hidden="true"></div>
+                                    <div class="nft-side nft-side-left" aria-hidden="true"></div>
+                                    <div class="nft-side nft-side-top" aria-hidden="true"></div>
+                                    <div class="nft-side nft-side-bottom" aria-hidden="true"></div>
+                                    <div class="nft-face nft-front">
+                                        <div class="nft-plate">
+                                            <div class="nft-sheen" aria-hidden="true"></div>
+                                            <div class="nft-spark" aria-hidden="true"></div>
+                                            <div class="nft-hex" aria-hidden="true"></div>
+                                            <div class="nft-top">
+                                                <span class="nft-chip" data-i18n="nftChip">GATE PASS</span>
+                                                <span class="nft-motto" data-i18n="nftMotto">PASS</span>
+                                            </div>
+                                            <p class="nft-handle" data-nft-handle>yourname</p>
+                                            <p class="nft-domain" data-nft-domain>—.ai</p>
+                                            <div class="nft-foot">
+                                                <span class="nft-brand">AgentGate</span>
+                                                <span class="nft-glyph" aria-hidden="true">⬡</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                    <div class="nft-face nft-back">
+                                        <div class="nft-plate nft-plate-back nft-plate-stats">
+                                            <div class="nft-sheen" aria-hidden="true"></div>
+                                            <p class="nft-stats-kicker" data-i18n="nftStatsKicker">CHI TIẾT ĐIỂM</p>
+                                            <p class="nft-stats-score"><strong data-nft-score>—</strong><span data-i18n="nftStatsPts">điểm</span></p>
+                                            <p class="nft-stats-tier" data-nft-tier-label>BRONZE</p>
+                                            <ul class="nft-stats-list" data-nft-lines></ul>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
+                        <p class="tier-note" data-i18n="tierCaptionDash">Bấm NFT để phóng to · kéo xoay 360° · mặt sau là bảng điểm.</p>
                     </div>
                 </div>
-                <p class="tier-note" data-i18n="tierCaptionDash">Bấm NFT để phóng to · kéo xoay 360° · mặt sau là bảng điểm.</p>
             </aside>
             <div class="dash-main-col">
             <div class="dash-brand-bar">
@@ -450,10 +516,6 @@
                             <button type="button" id="proofMintCheckInBtn" class="proof-primary-btn" data-i18n="proofMintCheckIn">
                                 Mint Proof + Check-in (1 prompt)
                             </button>
-                            <div class="proof-secondary-row">
-                                <button type="button" id="proofMintOnlyBtn" class="proof-secondary-btn" data-i18n="proofMintOnly">Chỉ mint</button>
-                                <button type="button" id="proofCheckOnlyBtn" class="proof-secondary-btn" data-i18n="proofCheckOnly">Chỉ check-in</button>
-                            </div>
                             <p class="proof-disclaimer" data-i18n="proofDisclaimer">
                                 Collectible miễn phí (gas only). Không phải đầu tư. Mỗi thao tác bạn tự confirm trong ví / Binance AI.
                             </p>
@@ -469,7 +531,7 @@
                             <ul class="pulse-traits">
                                 <li data-i18n="pulseTrait1">1 share / Agent / ngày UTC</li>
                                 <li data-i18n="pulseTrait2">Hoàn 100% BNB escrow — owner không rút được</li>
-                                <li data-i18n="pulseTrait3">AGPULSE thử nghiệm — có thể vô giá trị</li>
+                                <li data-i18n="pulseTrait3">AGPULSE thử nghiệm</li>
                             </ul>
                             <div class="pulse-metrics" aria-live="polite">
                                 <div class="pulse-metric">
@@ -1734,6 +1796,6 @@
 
     <script src="https://cdn.jsdelivr.net/npm/ethers@5.7.2/dist/ethers.umd.min.js"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="app.js?v=20261128w"></script>
+    <script src="app.js?v=20261128ag"></script>
 </body>
 </html>

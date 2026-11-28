@@ -44,7 +44,7 @@
 | Website | https://agentgate-hazel.vercel.app |
 | Contract address(es) | Gate `0xf61C2A65F66E4a5aFe357C2EC8c3851D396c530e` · Pass `0xb346d2705Ec8F8f863CBdfd3F0B78aB766AEA4c2` · PulseMine `0x80d2e58C74c0b95E62cD46D295fd6b0B8d69a298` · AGPULSE `0xBFDCf46D62d0C701CcE89965C12716f95667dD60` |
 | BscScan | Gate https://bscscan.com/address/0xf61C2A65F66E4a5aFe357C2EC8c3851D396c530e · PulseMine https://bscscan.com/address/0x80d2e58C74c0b95E62cD46D295fd6b0B8d69a298 |
-| Agent ID usage | Ownership-gated access via Agent ID; on-chain `checkIn` / `logIntent` / `recordAction`; soulbound Pass `mintProof`; **Pulse Mode A** (`enterFree` 0.002 BNB → 24h `claimFree` refund 100% BNB + experimental AGPULSE). No promised returns / not passive income. |
+| Agent ID usage | Ownership-gated access via Agent ID; on-chain `checkIn` / `logIntent` / `recordAction`; soulbound Pass `mintProof`; **Pulse Mode A** (`enterFree` 0.002 BNB → 24h `claimFree` refund 100% BNB + experimental AGPULSE); **Soft Ref** (`?ref=name.ai` → points → redeem trial AGPULSE, experimental / no promised returns). |
 | Repo | https://github.com/truonggalaxy99/agentGATE |
 | Reward address | _(your BSC address)_ |
 
